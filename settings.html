@@ -6,6 +6,9 @@
 		</div>
 		<div class="inline-drawer-content">
 			<div class="setting-row">
+				<label>Summary Prompt Start</label>
+				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_main" rows="5"
+					title="Main Summary Prompt"></textarea>
 				<label>Historical Context Size (-1 for full)</label>
 				<input class="neo-range-input" type="number" id="ils_setting_hist_ctx_depth" min="-1" max="9999999999"
 					step="1" value="-1">
@@ -15,22 +18,18 @@
 				<label>Historical Context End Marker</label>
 				<textarea class="text_pole textarea_compact" id="ils_setting_hist_ctx_end" rows="1"
 					title="A marker inserted around historical context"></textarea>
-			</div>
-			<div class="setting-row">
+				<label>Summary Prompt Middle</label>
+				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_mid" rows="5"
+					title="Middle Summary Prompt Segment, inserted after the historical context and before content to be summarised"></textarea>
 				<label>Content Start Marker</label>
 				<textarea class="text_pole textarea_compact" id="ils_setting_summ_cont_start" rows="1"
 					title="A marker inserted around content to be summarised"></textarea>
 				<label>Content End Marker</label>
 				<textarea class="text_pole textarea_compact" id="ils_setting_summ_cont_end" rows="1"
 					title="A marker inserted around content to be summarised"></textarea>
-			</div>
-			<div class="setting-row">
-				<label>Summary Prompt Start</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_main" rows="5"
-					title="Main Summary Prompt"></textarea>
-				<label>Summary Prompt Middle</label>
-				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_mid" rows="5"
-					title="Middle Summary Prompt Segment, inserted after the historical context and before content to be summarised"></textarea>
+				<label>Response Token Limit (0 for Use Global)</label>
+				<input class="neo-range-input" type="number" id="ils_setting_token_limit" min="0" max="9999999999"
+					step="1" value="0">
 			</div>
 			<div class="setting-row">
 				<input id="ils_setting_reset_default" class="menu_button" type="submit" value="Reset to Default" />

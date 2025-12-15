@@ -37,6 +37,7 @@ const kDefaultSettings = Object.freeze({
 	historicalContextEndMarker: "</Historical_Context>",
 	sumariseStartMarker: "<Content_To_Summarise>",
 	sumariseEndMarker: "</Content_To_Summarise>",
+	tokenLimit: 0
 });
 
 // =========================
@@ -254,7 +255,11 @@ const kMsgActionButtons = [
 			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages);
 
 			// Start LLM generation asynchronously without awaiting yet
-			const responsePromise = gST.generateRaw({ prompt: summaryPrompt });
+			let promptParams = { prompt: summaryPrompt };
+			if (gSettings.tokenLimit > 0)
+				promptParams.responseLength = gSettings.tokenLimit;
+
+			const responsePromise = gST.generateRaw(promptParams);
 
 			// create empty summary message while generation runs
 			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages);
@@ -777,6 +782,7 @@ function UpdateSettingsUI()
 	$("#ils_setting_summ_cont_end").val(gSettings.sumariseEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);
 	$("#ils_setting_prompt_mid").val(gSettings.midPrompt);
+	$("#ils_setting_token_limit").val(gSettings.tokenLimit);
 }
 
 function Debounce(fn, delay)
@@ -793,6 +799,13 @@ function OnSettingHistContextDepthChanged(event)
 {
 	const parsed = parseInt(event.target.value, 10);
 	gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
+	SaveSettings();
+}
+
+function OnSettingTokenLimitChanged(event)
+{
+	const parsed = parseInt(event.target.value, 10);
+	gSettings.tokenLimit = Number.isNaN(parsed) ? 0 : parsed;
 	SaveSettings();
 }
 
@@ -862,6 +875,7 @@ jQuery(async () =>
 	$("#ils_setting_summ_cont_end").on("input", Debounce(OnSettingSummaryContentEnd, 500));
 	$("#ils_setting_prompt_main").on("input", Debounce(OnSettingMainPrompt, 500));
 	$("#ils_setting_prompt_mid").on("input", Debounce(OnSettingMidPrompt, 500));
+	$("#ils_setting_token_limit").on("input", OnSettingTokenLimitChanged);
 	$("#ils_setting_reset_default").on("click", OnSettingResetToDefault);
 
 	// Message Action Buttons

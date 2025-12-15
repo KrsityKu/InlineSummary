@@ -41,5 +41,13 @@ No. It shouldn’t break, but swipes will behave like regular message swipes wit
 _**Is it compatible with extension X?**_<br>
 No idea. This extension directly manipulates chat and stores/restores messages without altering them. As long as other extensions are okay with that, it *should* be compatible — but no promises.
 
+_**Can I select a specific Connection Profile for the summary?**_<br>
+Not yet. I'll look into it in the future, but after quick examination it appears that implementing it requires a kind of round-about way of doing things.
+
 _**Has anyone actually asked these questions?**_<br>
-Nope.
+Yes, the Connection Profile one.
+
+## Known Incompatibilities
+
+_**Chat Style - Document**_<br>
+This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.

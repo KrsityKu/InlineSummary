@@ -27,9 +27,29 @@
 				<label>Content End Marker</label>
 				<textarea class="text_pole textarea_compact" id="ils_setting_summ_cont_end" rows="1"
 					title="A marker inserted around content to be summarised"></textarea>
+				<label>Summary Prompt End</label>
+				<textarea class="text_pole textarea_compact" id="ils_setting_prompt_end" rows="5"
+					title="End Summary Prompt, inserted at the end of the prompt"></textarea>
 				<label>Response Token Limit (0 for Use Global)</label>
 				<input class="neo-range-input" type="number" id="ils_setting_token_limit" min="0" max="9999999999"
 					step="1" value="0">
+			</div>
+			<div class="setting-row">
+				<label class="checkbox_label" title="Use specified Connection Profile">
+					<input type="checkbox" id="ils_setting_use_different_profile">
+					<small>Use specified Connection Profile:</small>
+				</label>
+				<select id="ils_setting_connection_profile" class="flex1">
+					<option value="&lt;None&gt;">&lt;None&gt;</option>
+				</select>
+			</div>
+			<div class="setting-row">
+				<label class="checkbox_label" title="Use specified Chat Completion Preset">
+					<input type="checkbox" id="ils_setting_use_different_preset">
+					<small>Use specified Chat Completion Preset:</small>
+				</label>
+				<select id="ils_setting_chat_completion_preset" class="flex1">
+				</select>
 			</div>
 			<div class="setting-row">
 				<input id="ils_setting_reset_default" class="menu_button" type="submit" value="Reset to Default" />

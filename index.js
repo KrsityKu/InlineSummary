@@ -32,12 +32,17 @@ const kDepthColours = [
 const kDefaultSettings = Object.freeze({
 	startPrompt: "Undefined",
 	midPrompt: "",
+	endPrompt: "",
 	historicalContexDepth: -1,
 	historicalContextStartMarker: "<Historical_Context>",
 	historicalContextEndMarker: "</Historical_Context>",
 	sumariseStartMarker: "<Content_To_Summarise>",
 	sumariseEndMarker: "</Content_To_Summarise>",
-	tokenLimit: 0
+	tokenLimit: 0,
+	useDifferentProfile: false,
+	profileName: "<None>",
+	useDifferentPreset: false,
+	presetName: ""
 });
 
 // =========================
@@ -254,6 +259,42 @@ const kMsgActionButtons = [
 			const originalMessages = gST.chat.slice(selection.start, selection.end + 1);
 			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages);
 
+			gST.deactivateSendButtons();
+
+			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>";
+			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "";
+
+			let prevProfile = "";
+			let prevPreset = "";
+			if (useDifferentProfile)
+			{
+				prevProfile = (await gST.executeSlashCommands("/profile")).pipe;
+
+				const swapResult = await gST.executeSlashCommands("/profile " + gSettings.profileName);
+				if (swapResult.isError)
+				{
+					Console.error("[ILS] Failed to swap connection profile to: " + gSettings.profileName);
+					gST.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					gST.activateSendButtons();
+					return;
+				}
+			}
+
+			if (useDifferentPreset)
+			{
+				const presetManager = gST.getPresetManager();
+				prevPreset = presetManager.getSelectedPresetName();
+
+				const swapResult = await gST.executeSlashCommands("/preset " + gSettings.presetName);
+				if (swapResult.isError)
+				{
+					Console.error("[ILS] Failed to swap preset to: " + gSettings.presetName);
+					gST.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					gST.activateSendButtons();
+					return;
+				}
+			}
+
 			// Start LLM generation asynchronously without awaiting yet
 			let promptParams = { prompt: summaryPrompt };
 			if (gSettings.tokenLimit > 0)
@@ -291,7 +332,16 @@ const kMsgActionButtons = [
 			}
 
 			// Now await for the LLM response to complete
-			const response = await responsePromise;
+			let response = "";
+			try
+			{
+				response = await responsePromise;
+			}
+			catch (e)
+			{
+				console.error("[ILS] Failed to get response from LLM");
+				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nRaw Error:\n" + e;
+			}
 
 			// Update the summary message in the backend with the generated response
 			gST.chat[selection.start].mes = response;
@@ -299,6 +349,28 @@ const kMsgActionButtons = [
 			// Save and reload to reflect the final response in the UI
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
+
+			if (useDifferentProfile)
+			{
+				const swapResult = await gST.executeSlashCommands("/profile " + prevProfile);
+				if (swapResult.isError)
+				{
+					Console.error("[ILS] Failed to swap connection profile to: " + prevProfile);
+					gST.callGenericPopup("[ILS] Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				}
+			}
+
+			if (useDifferentPreset)
+			{
+				const swapResult = await gST.executeSlashCommands("/preset " + prevPreset);
+				if (swapResult.isError)
+				{
+					Console.error("[ILS] Failed to swap preset to: " + prevPreset);
+					gST.callGenericPopup("[ILS] Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				}
+			}
+
+			gST.activateSendButtons();
 
 			ClearSelection();
 		},
@@ -488,7 +560,7 @@ function MakeSummaryPrompt(megIndex, originalMessages)
 	{
 		const msgText = GetMessageByIndex(i).mes.trim();
 		if (msgText.length > 0)
-			summaryPrompt += msgText + "\n";
+			summaryPrompt += "\n" + msgText;
 	}
 	summaryPrompt += "\n" + gSettings.historicalContextEndMarker;
 
@@ -506,39 +578,11 @@ function MakeSummaryPrompt(megIndex, originalMessages)
 	}
 	summaryPrompt += "\n" + gSettings.sumariseEndMarker;
 
+	// - Add End Prompt
+	if (gSettings.endPrompt !== "")
+		summaryPrompt += "\n" + gSettings.endPrompt;
+
 	return summaryPrompt;
-}
-
-async function GenerateSummary(msgIndex, summaryPrompt)
-{
-	// Start LLM generation asynchronously without awaiting yet
-	const responsePromise = gST.generateRaw({ prompt: summaryPrompt });
-
-	// Find and update the HTML element for the summary message with a loading spinner
-	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
-	if (summaryMsgElement)
-	{
-		const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-		if (mesTextElement)
-		{
-			// Create and insert loading spinner
-			const spinner = document.createElement("div");
-			spinner.className = "ils_loading_spinner";
-			spinner.innerHTML = '<i class="fa-solid fa-spinner"></i>';
-			mesTextElement.innerHTML = "";
-			mesTextElement.appendChild(spinner);
-		}
-	}
-
-	// Now await for the LLM response to complete
-	const response = await responsePromise;
-
-	// Update the summary message in the backend with the generated response
-	gST.chat[msgIndex].mes = response;
-
-	// Save and reload to reflect the final response in the UI
-	await gST.saveChat();
-	await gST.reloadCurrentChat();
 }
 
 // =========================
@@ -773,7 +817,7 @@ function OnChatChanged(data)
 // =========================
 // Settings Handling
 // =========================
-function UpdateSettingsUI()
+async function UpdateSettingsUI()
 {
 	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
@@ -782,7 +826,86 @@ function UpdateSettingsUI()
 	$("#ils_setting_summ_cont_end").val(gSettings.sumariseEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);
 	$("#ils_setting_prompt_mid").val(gSettings.midPrompt);
+	$("#ils_setting_prompt_end").val(gSettings.endPrompt);
 	$("#ils_setting_token_limit").val(gSettings.tokenLimit);
+	$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
+	$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
+
+	const profileListRes = await gST.executeSlashCommands("/profile-list");
+	if (profileListRes.isError)
+	{
+		console.error("[ILS] Failed to fetch Connection Profile list");
+		gST.callGenericPopup("[ILS] Failed to fetch Connection Profile list", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		return;
+	}
+
+	try
+	{
+		const profileDropdown = $("#ils_setting_connection_profile");
+		if (profileDropdown && profileDropdown.length)
+		{
+			profileDropdown.empty();
+			profileDropdown.append($('<option>', { value: '<None>', text: '<None>' }));
+
+			const profileList = JSON.parse(profileListRes.pipe);
+
+			if (Array.isArray(profileList))
+			{
+				for (const profName of profileList)
+					profileDropdown.append($('<option>', { value: profName, text: profName }));
+			}
+
+			if (gSettings.profileName && gSettings.profileName !== "" && profileList && profileList.includes(gSettings.profileName))
+			{
+				profileDropdown.val(gSettings.profileName);
+			}
+			else if (gSettings.profileName !== "<None>")
+			{
+				gSettings.useDifferentProfile = false;
+				$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
+				profileDropdown.val("<None>");
+				SaveSettings();
+				gST.callGenericPopup("[ILS] Warning - Saved profile:\n" + gSettings.profileName + "\nNot found. Using different profile has been disabled and reverted to <None>", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+			}
+		}
+	}
+	catch (e)
+	{
+		console.error("[ILS] Failed to populate connection profile dropdown: " + e);
+		gST.callGenericPopup("[ILS] Failed to populate connection profile dropdown: " + e, gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+	}
+
+	const presetManager = gST.getPresetManager();
+
+	try
+	{
+		const presetDropdown = $("#ils_setting_chat_completion_preset");
+		if (presetDropdown && presetDropdown.length)
+		{
+			presetDropdown.empty();
+
+			const presetList = Object.keys(presetManager.getPresetList().preset_names);
+			for (const presName of presetList)
+				presetDropdown.append($('<option>', { value: presName, text: presName }));
+
+			if (gSettings.presetName && gSettings.presetName !== "" && presetList && presetList.includes(gSettings.presetName))
+			{
+				presetDropdown.val(gSettings.presetName);
+			}
+			else if (gSettings.presetName !== "")
+			{
+				gSettings.useDifferentPreset = false;
+				$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
+				SaveSettings();
+				gST.callGenericPopup("[ILS] Warning - Saved preset:\n" + gSettings.presetName + "\nNot found. Using different preset has been disabled.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+			}
+		}
+	}
+	catch (e)
+	{
+		console.error("[ILS] Failed to populate Preset dropdown: " + e);
+		gST.callGenericPopup("[ILS] Failed to populate Preset dropdown: " + e, gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+	}
 }
 
 function Debounce(fn, delay)
@@ -795,53 +918,59 @@ function Debounce(fn, delay)
 	};
 }
 
-function OnSettingHistContextDepthChanged(event)
+function OnSettingChanged(event)
 {
-	const parsed = parseInt(event.target.value, 10);
-	gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
-	SaveSettings();
-}
+	const id = event.target.id;
+	const val = event.target.value;
 
-function OnSettingTokenLimitChanged(event)
-{
-	const parsed = parseInt(event.target.value, 10);
-	gSettings.tokenLimit = Number.isNaN(parsed) ? 0 : parsed;
-	SaveSettings();
-}
+	switch (id)
+	{
+		case "ils_setting_hist_ctx_depth":
+			{
+				const parsed = parseInt(val, 10);
+				gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
+				break;
+			}
+		case "ils_setting_token_limit":
+			{
+				const parsed = parseInt(val, 10);
+				gSettings.tokenLimit = Number.isNaN(parsed) ? 0 : parsed;
+				break;
+			}
+		case "ils_setting_hist_ctx_start":
+			gSettings.historicalContextStartMarker = val;
+			break;
+		case "ils_setting_hist_ctx_end":
+			gSettings.historicalContextEndMarker = val;
+			break;
+		case "ils_setting_summ_cont_start":
+			gSettings.sumariseStartMarker = val;
+			break;
+		case "ils_setting_summ_cont_end":
+			gSettings.sumariseEndMarker = val;
+			break;
+		case "ils_setting_prompt_main":
+			gSettings.startPrompt = val;
+			break;
+		case "ils_setting_prompt_mid":
+			gSettings.midPrompt = val;
+			break;
+		case "ils_setting_use_different_profile":
+			gSettings.useDifferentProfile = event.target.checked;
+			break;
+		case "ils_setting_connection_profile":
+			gSettings.profileName = val;
+			break;
+		case "ils_setting_use_different_preset":
+			gSettings.useDifferentPreset = event.target.checked;
+			break;
+		case "ils_setting_chat_completion_preset":
+			gSettings.presetName = val;
+			break;
+		default:
+			return; // unknown setting
+	}
 
-function OnSettingHistContextStart(event)
-{
-	gSettings.historicalContextStartMarker = event.target.value;
-	SaveSettings();
-}
-
-function OnSettingHistContextEnd(event)
-{
-	gSettings.historicalContextEndMarker = event.target.value;
-	SaveSettings();
-}
-
-function OnSettingSummaryContentStart(event)
-{
-	gSettings.sumariseStartMarker = event.target.value;
-	SaveSettings();
-}
-
-function OnSettingSummaryContentEnd(event)
-{
-	gSettings.sumariseEndMarker = event.target.value;
-	SaveSettings();
-}
-
-function OnSettingMainPrompt(event)
-{
-	gSettings.startPrompt = event.target.value;
-	SaveSettings();
-}
-
-function OnSettingMidPrompt(event)
-{
-	gSettings.midPrompt = event.target.value;
 	SaveSettings();
 }
 
@@ -865,17 +994,22 @@ jQuery(async () =>
 	$("#extensions_settings").append(settingsHtml);
 
 	// Fill In setting values
-	UpdateSettingsUI();
+	await UpdateSettingsUI();
 
 	// Setup setting change handlers
-	$("#ils_setting_hist_ctx_depth").on("input", OnSettingHistContextDepthChanged);
-	$("#ils_setting_hist_ctx_start").on("input", Debounce(OnSettingHistContextStart, 500));
-	$("#ils_setting_hist_ctx_end").on("input", Debounce(OnSettingHistContextEnd, 500));
-	$("#ils_setting_summ_cont_start").on("input", Debounce(OnSettingSummaryContentStart, 500));
-	$("#ils_setting_summ_cont_end").on("input", Debounce(OnSettingSummaryContentEnd, 500));
-	$("#ils_setting_prompt_main").on("input", Debounce(OnSettingMainPrompt, 500));
-	$("#ils_setting_prompt_mid").on("input", Debounce(OnSettingMidPrompt, 500));
-	$("#ils_setting_token_limit").on("input", OnSettingTokenLimitChanged);
+	$("#ils_setting_hist_ctx_depth").on("input", OnSettingChanged);
+	$("#ils_setting_hist_ctx_start").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_hist_ctx_end").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_summ_cont_start").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_summ_cont_end").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_prompt_main").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_prompt_mid").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_prompt_end").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_token_limit").on("input", OnSettingChanged);
+	$("#ils_setting_use_different_profile").on("change", OnSettingChanged);
+	$("#ils_setting_connection_profile").on("input", OnSettingChanged);
+	$("#ils_setting_use_different_preset").on("change", OnSettingChanged);
+	$("#ils_setting_chat_completion_preset").on("input", OnSettingChanged);
 	$("#ils_setting_reset_default").on("click", OnSettingResetToDefault);
 
 	// Message Action Buttons

@@ -59,7 +59,7 @@ This specific style hides the Message Actions buttons from older messages, which
 #### v1.0.4
 Fixed an issue where Restore and Re-generate buttons would get a wrong message ID resulting in showing wrong original messages and trying to re-generate summary using wrong messages.<br>
 Added a spinner and error checking for summary re-generation.<br>
-Added some guards to prevent buttongs being clicked again from triggering a generation action while one is already running.<br>
+Added some guards to prevent buttons being clicked again from triggering a generation action while one is already running.<br>
 Increased `loading_order` value in the manifest. This extension doesn't really care about it, but this might be better for compatibility with other extensions.
 
 #### v1.0.3

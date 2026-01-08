@@ -1,9 +1,9 @@
 {
 	"display_name": "InlineSummary",
-	"loading_order": 1,
+	"loading_order": 150,
 	"requires": [],
 	"optional": [],
 	"js": "index.js",
 	"css": "style.css",
-	"version": "1.0.2"
+	"version": "1.0.4"
 }

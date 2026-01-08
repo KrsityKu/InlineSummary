@@ -63,6 +63,15 @@ function GetILSInstance()
 	return g[kILSGlobalKey];
 }
 
+function IsOperationLockEngaged()
+{
+	const ilsInstance = GetILSInstance()
+	if (ilsInstance.operationLock)
+		return true;
+
+	return false;
+}
+
 // =========================
 // Helpers
 // =========================
@@ -84,7 +93,16 @@ function GetMessageByIndex(msgIndex)
 
 function Sleep(ms)
 {
-    return new Promise(resolve => setTimeout(resolve, ms));
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function MakeSpinner()
+{
+	const spinner = document.createElement("div");
+	spinner.className = "ils_loading_spinner";
+	spinner.innerHTML = '<i class="fa-solid fa-spinner"></i>';
+
+	return spinner;
 }
 
 // =========================
@@ -206,6 +224,9 @@ const kMsgActionButtons = [
 
 		OnClick(msgIndex)
 		{
+			if (IsOperationLockEngaged())
+				return;
+
 			const selection = GetSelection();
 			selection.end = msgIndex;
 			RefreshAllMessageButtons();
@@ -231,6 +252,9 @@ const kMsgActionButtons = [
 
 		OnClick(msgIndex)
 		{
+			if (IsOperationLockEngaged())
+				return;
+
 			const selection = GetSelection();
 			selection.start = msgIndex;
 			RefreshAllMessageButtons();
@@ -262,6 +286,9 @@ const kMsgActionButtons = [
 
 		OnClick(msgIndex)
 		{
+			if (IsOperationLockEngaged())
+				return;
+
 			ClearSelection();
 		},
 
@@ -290,11 +317,16 @@ const kMsgActionButtons = [
 			if (!IsValidRangeSelection(selection))
 				return;
 
+			const ilsInstance = GetILSInstance()
+			if (ilsInstance.operationLock)
+				return;
+
+			ilsInstance.operationLock = true;
+			gST.deactivateSendButtons();
+
 			// Prepare original messages and prompt
 			const originalMessages = gST.chat.slice(selection.start, selection.end + 1);
 			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages);
-
-			gST.deactivateSendButtons();
 
 			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>";
 			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "";
@@ -359,9 +391,7 @@ const kMsgActionButtons = [
 					{
 						// Create and insert loading spinner
 						// We don't need to delete the spinner as reloading the chat will destroy it for us.
-						const spinner = document.createElement("div");
-						spinner.className = "ils_loading_spinner";
-						spinner.innerHTML = '<i class="fa-solid fa-spinner"></i>';
+						const spinner = MakeSpinner();
 						mesTextElement.innerHTML = "";
 						mesTextElement.appendChild(spinner);
 					}
@@ -410,6 +440,7 @@ const kMsgActionButtons = [
 			}
 
 			gST.activateSendButtons();
+			ilsInstance.operationLock = false;
 
 			BringIntoView(selection.start);
 
@@ -441,6 +472,12 @@ const kMsgActionButtons = [
 			if (!IsValidRangeSelection(selection))
 				return;
 
+			const ilsInstance = GetILSInstance()
+			if (ilsInstance.operationLock)
+				return;
+
+			ilsInstance.operationLock = true;
+
 			// Prepare original messages and prompt
 			const originalMessages = gST.chat.slice(selection.start, selection.end + 1);
 
@@ -456,6 +493,7 @@ const kMsgActionButtons = [
 			await gST.reloadCurrentChat();
 
 			BringIntoView(selection.start);
+			ilsInstance.operationLock = false;
 
 			ClearSelection();
 		},
@@ -481,6 +519,13 @@ const kHeaderButtons = [
 
 		async OnClick(msgIndex)
 		{
+			const ilsInstance = GetILSInstance()
+			if (ilsInstance.operationLock)
+				return;
+
+			ilsInstance.operationLock = true;
+			gST.deactivateSendButtons();
+
 			const summaryMsg = GetMessageByIndex(msgIndex);
 			let originals = [];
 			if (HasOriginalMessages(summaryMsg))
@@ -494,6 +539,10 @@ const kHeaderButtons = [
 
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
+
+			gST.activateSendButtons();
+			ilsInstance.operationLock = false;
+			ClearSelection();
 
 			BringIntoView(msgIndex);
 		}
@@ -510,12 +559,45 @@ const kHeaderButtons = [
 			if (!HasOriginalMessages(summaryMsg))
 				return;
 
+			const ilsInstance = GetILSInstance()
+			if (ilsInstance.operationLock)
+				return;
+
+			ilsInstance.operationLock = true;
+			gST.deactivateSendButtons();
+
 			const summaryPrompt = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey]);
 
 			const responsePromise = gST.generateRaw({ prompt: summaryPrompt });
 
+			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
+			if (summaryMsgElement)
+			{
+				const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+				if (mesTextElement)
+				{
+					// Create and insert loading spinner
+					// We don't need to delete the spinner as reloading the chat will destroy it for us.
+					const spinner = MakeSpinner();
+					mesTextElement.innerHTML = "";
+					mesTextElement.appendChild(spinner);
+				}
+			}
+
 			// Now await for the LLM response to complete
-			const response = await responsePromise;
+			let response = "";
+			try
+			{
+				response = await responsePromise;
+			}
+			catch (e)
+			{
+				console.error("[ILS] Failed to get response from LLM");
+				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nRaw Error:\n"
+					+ e
+					+ "\n\n[Previous Summary]\n\n"
+					+ summaryMsg.mes;
+			}
 
 			// Update the summary message in the backend with the generated response
 			summaryMsg.mes = response;
@@ -523,6 +605,9 @@ const kHeaderButtons = [
 			// Save and reload to reflect the final response in the UI
 			await gST.saveChat();
 			await gST.reloadCurrentChat();
+
+			gST.activateSendButtons();
+			ilsInstance.operationLock = false;
 
 			BringIntoView(msgIndex);
 		}
@@ -563,8 +648,32 @@ function RefreshMessageElements(messageDiv, msgIndex)
 	{
 		if (existingOrigMsgDiv)
 		{
-			// If we ever need to update elements in the div, do it here.
-			// Currently no updates are needed.
+			// This is a strange one, for some reason we can end up with a div with a wrong `mesid`
+			// And just deleting the existing one seems fine too as the refresh is actually called twice
+			// I'm guessing one call might be manual, the other caused by the observer?
+
+			// In any case, I think chat refresh may not destroy all ofthe chat message html elements
+			// so some retain the original message blocks
+
+			// We do a few sanity checks and delete the blocks if they're invalid
+
+			// Ensure the correct ID
+			if (existingOrigMsgDiv.getAttribute("mesid") != msgIndex)
+			{
+				existingOrigMsgDiv.remove();
+				return;
+			}
+
+			// Ensure correct message count
+			const containerElement = messageDiv.querySelector(".ils_messages_container_root");
+			if (containerElement)
+			{
+				if (containerElement.getAttribute("msgCount") != msgObject.extra[kExtraDataKey][kOriginalMessagesKey].length)
+				{
+					existingOrigMsgDiv.remove();
+					return;
+				}
+			}
 		}
 		else
 		{
@@ -666,6 +775,7 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 		: [];
 
 	const containerRoot = document.createElement("div");
+	containerRoot.setAttribute("msgCount", originals.length);
 	containerRoot.className = "ils_messages_container_root";
 	containerRoot.style.borderLeft = `2px solid ${GetDepthColour(depth)}`;
 	containerRoot.style.paddingLeft = "2px";

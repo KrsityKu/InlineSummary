@@ -56,6 +56,12 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
+#### v1.0.4
+Fixed an issue where Restore and Re-generate buttons would get a wrong message ID resulting in showing wrong original messages and trying to re-generate summary using wrong messages.<br>
+Added a spinner and error checking for summary re-generation.<br>
+Added some guards to prevent buttongs being clicked again from triggering a generation action while one is already running.<br>
+Increased `loading_order` value in the manifest. This extension doesn't really care about it, but this might be better for compatibility with other extensions.
+
 #### v1.0.3
 Chat will now attempt to scroll after reload to the summary message or the restored messages. (Note, can sometimes be unreliable as reloading chat triggers a scroll to the bottom and I'm tryingto scroll up, but should be better than nothing)<br>
 Added some protections against double-registering event handlers during hot reloads based on ArtemDMI fork.

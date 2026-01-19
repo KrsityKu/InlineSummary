@@ -42,14 +42,17 @@ const kDefaultSettings = Object.freeze({
 	useDifferentProfile: false,
 	profileName: "<None>",
 	useDifferentPreset: false,
-	presetName: ""
+	presetName: "",
+	autoScroll: true,
+	summaryNameMode: "custom",
+	summaryName: "Summary"
 });
 
 // =========================
 // Includes/API/Globals
 // =========================
 
-const gST = SillyTavern.getContext();
+let gST = SillyTavern.getContext();
 let gSettings = {};
 const kILSGlobalKey = Symbol.for("InlineSummary.ILS");
 
@@ -179,12 +182,26 @@ function HasOriginalMessages(msgObject)
 function CreateEmptySummaryMessage(originalMessages)
 {
 	const summary = {
-		name: "Summary",
 		is_user: false,
 		is_system: false,
 		mes: "Generating...",
 		extra: {}
 	};
+
+	switch (gSettings.summaryNameMode)
+	{
+		case "user":
+			summary.name = gST.name1;
+			summary.is_user = true;
+			break
+		case "character":
+			summary.name = gST.name2;
+			break
+		case "custom":
+		default:
+			summary.name = gSettings.summaryName;
+			break
+	}
 
 	// Store original messages
 	summary.extra[kExtraDataKey] = {};
@@ -195,8 +212,11 @@ function CreateEmptySummaryMessage(originalMessages)
 
 async function BringIntoView(msgIndex)
 {
+	if (!gSettings.autoScroll)
+		return;
+
 	// Give a chance for elements to load in
-	await Sleep(75);
+	await Sleep(125);
 
 	const chatContainer = document.getElementById("chat");
 	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
@@ -362,6 +382,26 @@ const kMsgActionButtons = [
 				}
 			}
 
+			// To Do: Make this better to properly count prompt size, and reduce history, etc.
+			let isCloseToMax = false;
+			let ctxSize = gST.maxContext;
+			let promptSize = gST.getTokenCount(summaryPrompt);
+
+			// Very primitive check against <10% of context size.
+			// To Do: actually get allowed response size
+			let remainingContext = ctxSize - promptSize;
+			if (remainingContext < ctxSize * 0.1)
+				isCloseToMax = true;
+
+			if (remainingContext <= 0)
+			{
+				gST.callGenericPopup("[ILS] Summary Prompt is larger than allowed context: " + promptSize + " vs " + ctxSize
+					+ "\n\nSummarise a smaller range or reduce historical context.");
+				gST.activateSendButtons();
+				ilsInstance.operationLock = false;
+				return
+			}
+
 			// Start LLM generation asynchronously without awaiting yet
 			let promptParams = { prompt: summaryPrompt };
 			if (gSettings.tokenLimit > 0)
@@ -410,6 +450,9 @@ const kMsgActionButtons = [
 			{
 				console.error("[ILS] Failed to get response from LLM");
 				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nRaw Error:\n" + e;
+
+				if (isCloseToMax)
+					response += "\n[ILS] Prompt was close to max context size. Maybe try summarising a smaller range or reduce historical context.";
 			}
 
 			// Update the summary message in the backend with the generated response
@@ -968,6 +1011,7 @@ function MainClickHandler(e)
 
 function OnChatChanged(data)
 {
+	gST = SillyTavern.getContext();
 	ClearSelection();
 }
 
@@ -985,8 +1029,14 @@ async function UpdateSettingsUI()
 	$("#ils_setting_prompt_mid").val(gSettings.midPrompt);
 	$("#ils_setting_prompt_end").val(gSettings.endPrompt);
 	$("#ils_setting_token_limit").val(gSettings.tokenLimit);
+	$("#ils_setting_smr_name_custom_val").val(gSettings.summaryName);
+	$("#ils_setting_auto_scroll").prop("checked", gSettings.autoScroll);
 	$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
 	$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
+
+	const radio = document.querySelector(`input[name="ils_setting_radio_smr_name"][value="${gSettings.summaryNameMode}"]`);
+	if (radio)
+		radio.checked = true;
 
 	const profileListRes = await gST.executeSlashCommands("/profile-list");
 	if (profileListRes.isError)
@@ -1086,14 +1136,14 @@ function OnSettingChanged(event)
 			{
 				const parsed = parseInt(val, 10);
 				gSettings.historicalContexDepth = Number.isNaN(parsed) ? -1 : parsed;
-				break;
 			}
+			break;
 		case "ils_setting_token_limit":
 			{
 				const parsed = parseInt(val, 10);
 				gSettings.tokenLimit = Number.isNaN(parsed) ? 0 : parsed;
-				break;
 			}
+			break;
 		case "ils_setting_hist_ctx_start":
 			gSettings.historicalContextStartMarker = val;
 			break;
@@ -1123,6 +1173,21 @@ function OnSettingChanged(event)
 			break;
 		case "ils_setting_chat_completion_preset":
 			gSettings.presetName = val;
+			break;
+		case "ils_setting_auto_scroll":
+			gSettings.autoScroll = event.target.checked;
+			break;
+		case "ils_setting_smr_name_mode_user":
+		case "ils_setting_smr_name_mode_char":
+		case "ils_setting_smr_name_mode_custom":
+			{
+				const selected = document.querySelector('input[name="ils_setting_radio_smr_name"]:checked');
+				if (selected)
+					gSettings.summaryNameMode = selected.value;
+			}
+			break;
+		case "ils_setting_smr_name_custom_val":
+			gSettings.summaryName = val;
 			break;
 		default:
 			return; // unknown setting
@@ -1170,11 +1235,17 @@ jQuery(async () =>
 	$("#ils_setting_prompt_main").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_prompt_mid").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_prompt_end").on("input", Debounce(OnSettingChanged, 500));
+	$("#ils_setting_smr_name_custom_val").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_token_limit").on("input", OnSettingChanged);
 	$("#ils_setting_use_different_profile").on("change", OnSettingChanged);
 	$("#ils_setting_connection_profile").on("input", OnSettingChanged);
 	$("#ils_setting_use_different_preset").on("change", OnSettingChanged);
 	$("#ils_setting_chat_completion_preset").on("input", OnSettingChanged);
+	$("#ils_setting_smr_name_mode_user").on("change", OnSettingChanged);
+	$("#ils_setting_smr_name_mode_char").on("change", OnSettingChanged);
+	$("#ils_setting_smr_name_mode_custom").on("change", OnSettingChanged);
+	$("#ils_setting_auto_scroll").on("change", OnSettingChanged);
+
 	$("#ils_setting_reset_default").on("click", OnSettingResetToDefault);
 
 	// Message Action Buttons

@@ -34,10 +34,11 @@
 				<input class="neo-range-input" type="number" id="ils_setting_token_limit" min="0" max="9999999999"
 					step="1" value="0">
 			</div>
+			<hr style="margin: 5px 0;">
 			<div class="setting-row">
 				<label class="checkbox_label" title="Use specified Connection Profile">
 					<input type="checkbox" id="ils_setting_use_different_profile">
-					<small>Use specified Connection Profile:</small>
+					<span>Use specified Connection Profile:</span>
 				</label>
 				<select id="ils_setting_connection_profile" class="flex1">
 					<option value="&lt;None&gt;">&lt;None&gt;</option>
@@ -46,11 +47,36 @@
 			<div class="setting-row">
 				<label class="checkbox_label" title="Use specified Chat Completion Preset">
 					<input type="checkbox" id="ils_setting_use_different_preset">
-					<small>Use specified Chat Completion Preset:</small>
+					<span>Use specified Chat Completion Preset:</span>
 				</label>
 				<select id="ils_setting_chat_completion_preset" class="flex1">
 				</select>
 			</div>
+			<hr style="margin: 5px 0;">
+			<div class="setting-row">
+				<label class="checkbox_label" title="Auto scroll chat to summarised message">
+					<input type="checkbox" id="ils_setting_auto_scroll">
+					<span>Auto Scroll to summarised message</span>
+				</label>
+			</div>
+			<hr style="margin: 5px 0;">
+			<div class="setting-row">
+				<span>Summary message sender name:</span>
+				<label class="checkbox_label" title="User">
+					<input type="radio" id="ils_setting_smr_name_mode_user" name="ils_setting_radio_smr_name" value="user">
+					<span>User</span>
+				</label>
+				<label class="checkbox_label" title="Character">
+					<input type="radio" id="ils_setting_smr_name_mode_char" name="ils_setting_radio_smr_name" value="character">
+					<span>Character</span>
+				</label>
+				<label class="checkbox_label" title="Custom Value">
+					<input type="radio" id="ils_setting_smr_name_mode_custom" name="ils_setting_radio_smr_name" value="custom">
+					<span>Custom:</span>
+					<textarea class="text_pole textarea_compact" id="ils_setting_smr_name_custom_val" title="Custom name to use" rows="1"></textarea>
+				</label>
+			</div>
+			<hr style="margin: 5px 0;">
 			<div class="setting-row">
 				<input id="ils_setting_reset_default" class="menu_button" type="submit" value="Reset to Default" />
 			</div>

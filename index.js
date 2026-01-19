@@ -52,7 +52,6 @@ const kDefaultSettings = Object.freeze({
 // Includes/API/Globals
 // =========================
 
-let gST = SillyTavern.getContext();
 let gSettings = {};
 const kILSGlobalKey = Symbol.for("InlineSummary.ILS");
 
@@ -89,9 +88,9 @@ function GetDepthColourWithAlpha(depth, alpha)
 	return GetDepthColour(depth) + alphaHex;
 }
 
-function GetMessageByIndex(msgIndex)
+function GetMessageByIndex(msgIndex, stContext)
 {
-	return gST.chat[msgIndex];
+	return stContext.chat[msgIndex];
 }
 
 function Sleep(ms)
@@ -111,16 +110,16 @@ function MakeSpinner()
 // =========================
 // Selection Helpers
 // =========================
-function GetSelection()
+function GetSelection(stContext)
 {
-	if (!gST.chatMetadata.ils_selection)
-		gST.chatMetadata.ils_selection = { start: null, end: null };
-	return gST.chatMetadata.ils_selection;
+	if (!stContext.chatMetadata.ils_selection)
+		stContext.chatMetadata.ils_selection = { start: null, end: null };
+	return stContext.chatMetadata.ils_selection;
 }
 
-function ClearSelection()
+function ClearSelection(stContext)
 {
-	gST.chatMetadata.ils_selection = { start: null, end: null };
+	stContext.chatMetadata.ils_selection = { start: null, end: null };
 	RefreshAllMessageButtons();
 }
 
@@ -142,33 +141,28 @@ function IsValidRangeSelection(selection)
 // =========================
 // Settings
 // =========================
-async function LoadSettings()
+async function LoadSettings(stContext)
 {
-	if (!gST.extensionSettings[kExtensionName])
-		gST.extensionSettings[kExtensionName] = {};
+	if (!stContext.extensionSettings[kExtensionName])
+		stContext.extensionSettings[kExtensionName] = {};
 
 	for (const settingKey of Object.keys(kDefaultSettings))
 	{
-		if (!Object.hasOwn(gST.extensionSettings[kExtensionName], settingKey))
+		if (!Object.hasOwn(stContext.extensionSettings[kExtensionName], settingKey))
 		{
 			if (settingKey == "startPrompt")
 			{
 				const defaultsJson = await $.get(kDefaultsFile);
-				gST.extensionSettings[kExtensionName].startPrompt = defaultsJson.defaultPrompt;
+				stContext.extensionSettings[kExtensionName].startPrompt = defaultsJson.defaultPrompt;
 			}
 			else
 			{
-				gST.extensionSettings[kExtensionName][settingKey] = kDefaultSettings[settingKey];
+				stContext.extensionSettings[kExtensionName][settingKey] = kDefaultSettings[settingKey];
 			}
 		}
 	}
 
-	return gST.extensionSettings[kExtensionName];
-}
-
-function SaveSettings()
-{
-	gST.saveSettingsDebounced();
+	return stContext.extensionSettings[kExtensionName];
 }
 
 // =========================
@@ -179,7 +173,7 @@ function HasOriginalMessages(msgObject)
 	return msgObject && msgObject.extra && msgObject.extra[kExtraDataKey] && Array.isArray(msgObject.extra[kExtraDataKey][kOriginalMessagesKey]);
 }
 
-function CreateEmptySummaryMessage(originalMessages)
+function CreateEmptySummaryMessage(originalMessages, stContext)
 {
 	const summary = {
 		is_user: false,
@@ -191,11 +185,11 @@ function CreateEmptySummaryMessage(originalMessages)
 	switch (gSettings.summaryNameMode)
 	{
 		case "user":
-			summary.name = gST.name1;
+			summary.name = stContext.name1;
 			summary.is_user = true;
 			break
 		case "character":
-			summary.name = gST.name2;
+			summary.name = stContext.name2;
 			break
 		case "custom":
 		default:
@@ -247,14 +241,16 @@ const kMsgActionButtons = [
 			if (IsOperationLockEngaged())
 				return;
 
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			selection.end = msgIndex;
 			RefreshAllMessageButtons();
 		},
 
 		GetColor(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			if (selection.end === null)
 				return kMsgBtnColours.default;
 			if (msgIndex === selection.end)
@@ -275,14 +271,16 @@ const kMsgActionButtons = [
 			if (IsOperationLockEngaged())
 				return;
 
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			selection.start = msgIndex;
 			RefreshAllMessageButtons();
 		},
 
 		GetColor(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			if (selection.start === null)
 				return kMsgBtnColours.default;
 			if (msgIndex === selection.start)
@@ -300,7 +298,8 @@ const kMsgActionButtons = [
 
 		ShowCondition(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			return IsMsgInRange(msgIndex, selection) || selection.start === msgIndex || selection.end === msgIndex;
 		},
 
@@ -309,12 +308,14 @@ const kMsgActionButtons = [
 			if (IsOperationLockEngaged())
 				return;
 
-			ClearSelection();
+			const stContext = SillyTavern.getContext();
+			ClearSelection(stContext);
 		},
 
 		GetColor(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			const canClear = selection.start !== null || selection.end !== null;
 			return canClear ? kMsgBtnColours.clearable : kMsgBtnColours.default;
 		}
@@ -327,13 +328,15 @@ const kMsgActionButtons = [
 
 		ShowCondition(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			return IsMsgInRange(msgIndex, selection);
 		},
 
 		async OnClick(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			if (!IsValidRangeSelection(selection))
 				return;
 
@@ -342,11 +345,11 @@ const kMsgActionButtons = [
 				return;
 
 			ilsInstance.operationLock = true;
-			gST.deactivateSendButtons();
+			stContext.deactivateSendButtons();
 
 			// Prepare original messages and prompt
-			const originalMessages = gST.chat.slice(selection.start, selection.end + 1);
-			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages);
+			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages, stContext);
 
 			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>";
 			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "";
@@ -355,37 +358,37 @@ const kMsgActionButtons = [
 			let prevPreset = "";
 			if (useDifferentProfile)
 			{
-				prevProfile = (await gST.executeSlashCommands("/profile")).pipe;
+				prevProfile = (await stContext.executeSlashCommands("/profile")).pipe;
 
-				const swapResult = await gST.executeSlashCommands("/profile " + gSettings.profileName);
+				const swapResult = await stContext.executeSlashCommands("/profile " + gSettings.profileName);
 				if (swapResult.isError)
 				{
-					Console.error("[ILS] Failed to swap connection profile to: " + gSettings.profileName);
-					gST.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
-					gST.activateSendButtons();
+					console.error("[ILS] Failed to swap connection profile to: " + gSettings.profileName);
+					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					stContext.activateSendButtons();
 					return;
 				}
 			}
 
 			if (useDifferentPreset)
 			{
-				const presetManager = gST.getPresetManager();
+				const presetManager = stContext.getPresetManager();
 				prevPreset = presetManager.getSelectedPresetName();
 
-				const swapResult = await gST.executeSlashCommands("/preset " + gSettings.presetName);
+				const swapResult = await stContext.executeSlashCommands("/preset " + gSettings.presetName);
 				if (swapResult.isError)
 				{
-					Console.error("[ILS] Failed to swap preset to: " + gSettings.presetName);
-					gST.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
-					gST.activateSendButtons();
+					console.error("[ILS] Failed to swap preset to: " + gSettings.presetName);
+					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					stContext.activateSendButtons();
 					return;
 				}
 			}
 
 			// To Do: Make this better to properly count prompt size, and reduce history, etc.
 			let isCloseToMax = false;
-			let ctxSize = gST.maxContext;
-			let promptSize = gST.getTokenCount(summaryPrompt);
+			let ctxSize = stContext.maxContext;
+			let promptSize = stContext.getTokenCount(summaryPrompt);
 
 			// Very primitive check against <10% of context size.
 			// To Do: actually get allowed response size
@@ -395,9 +398,9 @@ const kMsgActionButtons = [
 
 			if (remainingContext <= 0)
 			{
-				gST.callGenericPopup("[ILS] Summary Prompt is larger than allowed context: " + promptSize + " vs " + ctxSize
+				stContext.callGenericPopup("[ILS] Summary Prompt is larger than allowed context: " + promptSize + " vs " + ctxSize
 					+ "\n\nSummarise a smaller range or reduce historical context.");
-				gST.activateSendButtons();
+				stContext.activateSendButtons();
 				ilsInstance.operationLock = false;
 				return
 			}
@@ -407,19 +410,19 @@ const kMsgActionButtons = [
 			if (gSettings.tokenLimit > 0)
 				promptParams.responseLength = gSettings.tokenLimit;
 
-			const responsePromise = gST.generateRaw(promptParams);
+			const responsePromise = stContext.generateRaw(promptParams);
 
 			// create empty summary message while generation runs
-			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages);
+			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
 			newSummaryMsg.mes = "Generating...";
 
 			// Delete Originals
-			gST.chat.splice(selection.start, originalMessages.length);
+			stContext.chat.splice(selection.start, originalMessages.length);
 			// Insert summary message into chat and save/reload
-			gST.chat.splice(selection.start, 0, newSummaryMsg);
+			stContext.chat.splice(selection.start, 0, newSummaryMsg);
 
-			await gST.saveChat();
-			await gST.reloadCurrentChat();
+			await stContext.saveChat();
+			await stContext.reloadCurrentChat();
 
 			// Find and update the HTML element for the summary message with a loading spinner
 			{
@@ -456,43 +459,44 @@ const kMsgActionButtons = [
 			}
 
 			// Update the summary message in the backend with the generated response
-			gST.chat[selection.start].mes = response;
+			stContext.chat[selection.start].mes = response;
 
 			// Save and reload to reflect the final response in the UI
-			await gST.saveChat();
-			await gST.reloadCurrentChat();
+			await stContext.saveChat();
+			await stContext.reloadCurrentChat();
 
 			if (useDifferentProfile)
 			{
-				const swapResult = await gST.executeSlashCommands("/profile " + prevProfile);
+				const swapResult = await stContext.executeSlashCommands("/profile " + prevProfile);
 				if (swapResult.isError)
 				{
-					Console.error("[ILS] Failed to swap connection profile to: " + prevProfile);
-					gST.callGenericPopup("[ILS] Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					console.error("[ILS] Failed to swap connection profile to: " + prevProfile);
+					stContext.callGenericPopup("[ILS] Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 				}
 			}
 
 			if (useDifferentPreset)
 			{
-				const swapResult = await gST.executeSlashCommands("/preset " + prevPreset);
+				const swapResult = await stContext.executeSlashCommands("/preset " + prevPreset);
 				if (swapResult.isError)
 				{
-					Console.error("[ILS] Failed to swap preset to: " + prevPreset);
-					gST.callGenericPopup("[ILS] Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					console.error("[ILS] Failed to swap preset to: " + prevPreset);
+					stContext.callGenericPopup("[ILS] Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 				}
 			}
 
-			gST.activateSendButtons();
+			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
 
 			BringIntoView(selection.start);
 
-			ClearSelection();
+			ClearSelection(stContext);
 		},
 
 		GetColor(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			const valid = selection.start !== null && selection.end !== null && selection.end > selection.start;
 			return valid ? kMsgBtnColours.selected : kMsgBtnColours.default;
 		}
@@ -505,13 +509,15 @@ const kMsgActionButtons = [
 
 		ShowCondition(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			return IsMsgInRange(msgIndex, selection);
 		},
 
 		async OnClick(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			if (!IsValidRangeSelection(selection))
 				return;
 
@@ -522,28 +528,29 @@ const kMsgActionButtons = [
 			ilsInstance.operationLock = true;
 
 			// Prepare original messages and prompt
-			const originalMessages = gST.chat.slice(selection.start, selection.end + 1);
+			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 
-			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages);
+			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
 			newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]";
 
 			// Delete Originals
-			gST.chat.splice(selection.start, originalMessages.length);
+			stContext.chat.splice(selection.start, originalMessages.length);
 			// Add Summary
-			gST.chat.splice(selection.start, 0, newSummaryMsg);
+			stContext.chat.splice(selection.start, 0, newSummaryMsg);
 
-			await gST.saveChat();
-			await gST.reloadCurrentChat();
+			await stContext.saveChat();
+			await stContext.reloadCurrentChat();
 
 			BringIntoView(selection.start);
 			ilsInstance.operationLock = false;
 
-			ClearSelection();
+			ClearSelection(stContext);
 		},
 
 		GetColor(msgIndex)
 		{
-			const selection = GetSelection();
+			const stContext = SillyTavern.getContext();
+			const selection = GetSelection(stContext);
 			const valid = selection.start !== null && selection.end !== null && selection.end > selection.start;
 			return valid ? kMsgBtnColours.selected : kMsgBtnColours.default;
 		}
@@ -566,10 +573,12 @@ const kHeaderButtons = [
 			if (ilsInstance.operationLock)
 				return;
 
-			ilsInstance.operationLock = true;
-			gST.deactivateSendButtons();
+			const stContext = SillyTavern.getContext();
 
-			const summaryMsg = GetMessageByIndex(msgIndex);
+			ilsInstance.operationLock = true;
+			stContext.deactivateSendButtons();
+
+			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
 			let originals = [];
 			if (HasOriginalMessages(summaryMsg))
 			{
@@ -577,15 +586,15 @@ const kHeaderButtons = [
 				summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey] = null;
 			}
 
-			gST.chat.splice(msgIndex + 1, 0, ...originals);
-			gST.chat.splice(msgIndex, 1);
+			stContext.chat.splice(msgIndex + 1, 0, ...originals);
+			stContext.chat.splice(msgIndex, 1);
 
-			await gST.saveChat();
-			await gST.reloadCurrentChat();
+			await stContext.saveChat();
+			await stContext.reloadCurrentChat();
 
-			gST.activateSendButtons();
+			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
-			ClearSelection();
+			ClearSelection(stContext);
 
 			BringIntoView(msgIndex);
 		}
@@ -598,7 +607,9 @@ const kHeaderButtons = [
 
 		async OnClick(msgIndex)
 		{
-			const summaryMsg = GetMessageByIndex(msgIndex);
+			const stContext = SillyTavern.getContext();
+
+			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
 			if (!HasOriginalMessages(summaryMsg))
 				return;
 
@@ -607,11 +618,11 @@ const kHeaderButtons = [
 				return;
 
 			ilsInstance.operationLock = true;
-			gST.deactivateSendButtons();
+			stContext.deactivateSendButtons();
 
-			const summaryPrompt = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey]);
+			const summaryPrompt = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey], stContext);
 
-			const responsePromise = gST.generateRaw({ prompt: summaryPrompt });
+			const responsePromise = stContext.generateRaw({ prompt: summaryPrompt });
 
 			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
 			if (summaryMsgElement)
@@ -646,10 +657,10 @@ const kHeaderButtons = [
 			summaryMsg.mes = response;
 
 			// Save and reload to reflect the final response in the UI
-			await gST.saveChat();
-			await gST.reloadCurrentChat();
+			await stContext.saveChat();
+			await stContext.reloadCurrentChat();
 
-			gST.activateSendButtons();
+			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
 
 			BringIntoView(msgIndex);
@@ -672,7 +683,9 @@ function RefreshAllMessageButtons()
 
 function RefreshMessageElements(messageDiv, msgIndex)
 {
-	const msgObject = GetMessageByIndex(msgIndex);
+	const stContext = SillyTavern.getContext();
+
+	const msgObject = GetMessageByIndex(msgIndex, stContext);
 	if (!msgObject)
 		return;
 
@@ -739,7 +752,7 @@ function RefreshMessageElements(messageDiv, msgIndex)
 // Summary Functions
 // =========================
 
-function MakeSummaryPrompt(megIndex, originalMessages)
+function MakeSummaryPrompt(megIndex, originalMessages, stContext)
 {
 	// Generate Summary Prompt
 	// - Add Main Prompt
@@ -757,7 +770,7 @@ function MakeSummaryPrompt(megIndex, originalMessages)
 
 	for (let i = histContextStart; i < megIndex; i++)
 	{
-		const msgText = GetMessageByIndex(i).mes.trim();
+		const msgText = GetMessageByIndex(i, stContext).mes.trim();
 		if (msgText.length > 0)
 			summaryPrompt += "\n" + msgText;
 	}
@@ -787,14 +800,14 @@ function MakeSummaryPrompt(megIndex, originalMessages)
 // =========================
 // Original Message Display Handling
 // =========================
-function GetMessageFromPath(path)
+function GetMessageFromPath(path, stContext)
 {
 	if (!Array.isArray(path) || path.length === 0)
 		return null;
 
 	const [msgIndex, ...subpath] = path;
 
-	let msg = GetMessageByIndex(msgIndex);
+	let msg = GetMessageByIndex(msgIndex, stContext);
 	if (!msg || !HasOriginalMessages(msg))
 		return null;
 
@@ -869,7 +882,7 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	return containerRoot;
 }
 
-function CreateOriginalMessageBody(msgIndex, msgObject, depth = 0, path = [])
+function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, path = [])
 {
 	const messageRoot = document.createElement("div");
 	messageRoot.className = "ils_original_message";
@@ -893,7 +906,7 @@ function CreateOriginalMessageBody(msgIndex, msgObject, depth = 0, path = [])
 
 	const contentDiv = document.createElement("div");
 	contentDiv.className = "mes_text";
-	contentDiv.innerHTML = gST.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0, true, false);
+	contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0, true, false);
 	messageRoot.appendChild(contentDiv);
 
 	if (HasOriginalMessages(msgObject))
@@ -906,6 +919,8 @@ function CreateOriginalMessageBody(msgIndex, msgObject, depth = 0, path = [])
 
 function HandleMessagesHeaderClick(containerHeaderDiv)
 {
+	const stContext = SillyTavern.getContext();
+
 	const msgDepth = Number(containerHeaderDiv.getAttribute("ils-msg-depth"));
 	const msgIndex = Number(containerHeaderDiv.getAttribute("ils-msg-index"));
 	const pathStr = containerHeaderDiv.getAttribute("ils-msg-path");
@@ -932,7 +947,7 @@ function HandleMessagesHeaderClick(containerHeaderDiv)
 			return;
 		}
 
-		const msgObject = GetMessageFromPath(path);
+		const msgObject = GetMessageFromPath(path, stContext);
 		if (!msgObject)
 			return;
 
@@ -942,7 +957,7 @@ function HandleMessagesHeaderClick(containerHeaderDiv)
 
 		messages.forEach((orgiMsg, origIndex) =>
 		{
-			const origMsgBody = CreateOriginalMessageBody(origIndex, orgiMsg, msgDepth + 1, path);
+			const origMsgBody = CreateOriginalMessageBody(origIndex, orgiMsg, stContext, msgDepth + 1, path);
 			if (origMsgBody)
 				containerContents.appendChild(origMsgBody);
 		});
@@ -1007,12 +1022,11 @@ function MainClickHandler(e)
 			break;
 		}
 	}
-};
+}
 
 function OnChatChanged(data)
 {
-	gST = SillyTavern.getContext();
-	ClearSelection();
+	ClearSelection(SillyTavern.getContext());
 }
 
 // =========================
@@ -1020,6 +1034,8 @@ function OnChatChanged(data)
 // =========================
 async function UpdateSettingsUI()
 {
+	const stContext = SillyTavern.getContext();
+
 	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
 	$("#ils_setting_hist_ctx_end").val(gSettings.historicalContextEndMarker);
@@ -1038,11 +1054,11 @@ async function UpdateSettingsUI()
 	if (radio)
 		radio.checked = true;
 
-	const profileListRes = await gST.executeSlashCommands("/profile-list");
+	const profileListRes = await stContext.executeSlashCommands("/profile-list");
 	if (profileListRes.isError)
 	{
 		console.error("[ILS] Failed to fetch Connection Profile list");
-		gST.callGenericPopup("[ILS] Failed to fetch Connection Profile list", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		stContext.callGenericPopup("[ILS] Failed to fetch Connection Profile list", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 		return;
 	}
 
@@ -1071,18 +1087,18 @@ async function UpdateSettingsUI()
 				gSettings.useDifferentProfile = false;
 				$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
 				profileDropdown.val("<None>");
-				SaveSettings();
-				gST.callGenericPopup("[ILS] Warning - Saved profile:\n" + gSettings.profileName + "\nNot found. Using different profile has been disabled and reverted to <None>", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				stContext.saveSettingsDebounced();
+				stContext.callGenericPopup("[ILS] Warning - Saved profile:\n" + gSettings.profileName + "\nNot found. Using different profile has been disabled and reverted to <None>", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 			}
 		}
 	}
 	catch (e)
 	{
 		console.error("[ILS] Failed to populate connection profile dropdown: " + e);
-		gST.callGenericPopup("[ILS] Failed to populate connection profile dropdown: " + e, gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		stContext.callGenericPopup("[ILS] Failed to populate connection profile dropdown: " + e, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 	}
 
-	const presetManager = gST.getPresetManager();
+	const presetManager = stContext.getPresetManager();
 
 	try
 	{
@@ -1103,15 +1119,15 @@ async function UpdateSettingsUI()
 			{
 				gSettings.useDifferentPreset = false;
 				$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
-				SaveSettings();
-				gST.callGenericPopup("[ILS] Warning - Saved preset:\n" + gSettings.presetName + "\nNot found. Using different preset has been disabled.", gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				stContext.saveSettingsDebounced();
+				stContext.callGenericPopup("[ILS] Warning - Saved preset:\n" + gSettings.presetName + "\nNot found. Using different preset has been disabled.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 			}
 		}
 	}
 	catch (e)
 	{
 		console.error("[ILS] Failed to populate Preset dropdown: " + e);
-		gST.callGenericPopup("[ILS] Failed to populate Preset dropdown: " + e, gST.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		stContext.callGenericPopup("[ILS] Failed to populate Preset dropdown: " + e, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 	}
 }
 
@@ -1193,14 +1209,16 @@ function OnSettingChanged(event)
 			return; // unknown setting
 	}
 
-	SaveSettings();
+	const stContext = SillyTavern.getContext();
+	stContext.saveSettingsDebounced();
 }
 
 async function OnSettingResetToDefault()
 {
+	const stContext = SillyTavern.getContext();
 	Object.keys(gSettings).forEach(key => delete gSettings[key]);
-	gSettings = await LoadSettings();
-	SaveSettings();
+	gSettings = await LoadSettings(stContext);
+	stContext.saveSettingsDebounced();
 	UpdateSettingsUI();
 }
 
@@ -1209,9 +1227,10 @@ async function OnSettingResetToDefault()
 // =========================
 jQuery(async () =>
 {
+	const stContext = SillyTavern.getContext();
 	const ilsInstance = GetILSInstance()
 
-	gSettings = await LoadSettings();
+	gSettings = await LoadSettings(stContext);
 
 	// Setup Settings Menu
 	const settingsHtml = await $.get(kSettingsFile);
@@ -1305,7 +1324,7 @@ jQuery(async () =>
 	// Other Events
 	if (!ilsInstance.chatChangedRegistered)
 	{
-		gST.eventSource.on(gST.eventTypes.CHAT_CHANGED, OnChatChanged);
+		stContext.eventSource.on(stContext.eventTypes.CHAT_CHANGED, OnChatChanged);
 		ilsInstance.chatChangedRegistered = true;
 	}
 

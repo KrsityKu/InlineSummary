@@ -209,21 +209,11 @@ async function BringIntoView(msgIndex)
 	if (!gSettings.autoScroll)
 		return;
 
-	// Give a chance for elements to load in
-	await Sleep(125);
+	// Still need sleep since 'chat-scrollto' is not 100% reliable
+	await Sleep(100);
 
-	const chatContainer = document.getElementById("chat");
-	const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
-	if (summaryMsgElement && chatContainer)
-	{
-		const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-		if (mesTextElement)
-		{
-			// Give some time for elements to fade-in and such.
-			//setTimeout(() => { mesTextElement.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" }); }, 200);
-			setTimeout(() => { chatContainer.scrollTop = mesTextElement.offsetTop - chatContainer.offsetTop; }, 200);
-		}
-	}
+	const stContext = SillyTavern.getContext();
+	await stContext.executeSlashCommands(`/chat-scrollto ${msgIndex}`);
 }
 
 // =========================

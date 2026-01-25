@@ -56,10 +56,9 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
-#### v1.0.5
-Added option to disable auto-scroll.<br>
-Added option to change the summary message user name (User/Character/Custom).<br>
-Added a basic check to see if a summary prompt exceeds max context size. Also added a more detailed error mesasge if API call fails with less than 10% free context remaining.
+#### v1.0.6
+Hotfix to fetch latest context more often, should fix prompt not fitting into the context error.
+Hotfix to adjust scrolling behaviour, will now scroll to summary message more reliably after chat refresh (Still not 100% though)
 
 ### Previous Changes
 See `changelog.md`

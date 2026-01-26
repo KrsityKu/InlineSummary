@@ -56,9 +56,8 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
-#### v1.0.6
-Hotfix to fetch latest context more often, should fix prompt not fitting into the context error.
-Hotfix to adjust scrolling behaviour, will now scroll to summary message more reliably after chat refresh (Still not 100% though)
+#### v1.0.7
+Fixed the prompt length check using Text Completion context size value at all times.
 
 ### Previous Changes
 See `changelog.md`

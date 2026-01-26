@@ -325,7 +325,7 @@ const kMsgActionButtons = [
 
 		async OnClick(msgIndex)
 		{
-			const stContext = SillyTavern.getContext();
+			let stContext = SillyTavern.getContext();
 			const selection = GetSelection(stContext);
 			if (!IsValidRangeSelection(selection))
 				return;
@@ -351,11 +351,13 @@ const kMsgActionButtons = [
 				prevProfile = (await stContext.executeSlashCommands("/profile")).pipe;
 
 				const swapResult = await stContext.executeSlashCommands("/profile " + gSettings.profileName);
+				stContext = SillyTavern.getContext(); // Update context just in case
 				if (swapResult.isError)
 				{
 					console.error("[ILS] Failed to swap connection profile to: " + gSettings.profileName);
 					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 					stContext.activateSendButtons();
+					ilsInstance.operationLock = false;
 					return;
 				}
 			}
@@ -366,18 +368,38 @@ const kMsgActionButtons = [
 				prevPreset = presetManager.getSelectedPresetName();
 
 				const swapResult = await stContext.executeSlashCommands("/preset " + gSettings.presetName);
+				stContext = SillyTavern.getContext(); // Update context just in case
 				if (swapResult.isError)
 				{
 					console.error("[ILS] Failed to swap preset to: " + gSettings.presetName);
 					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
 					stContext.activateSendButtons();
+					ilsInstance.operationLock = false;
 					return;
 				}
 			}
 
 			// To Do: Make this better to properly count prompt size, and reduce history, etc.
 			let isCloseToMax = false;
-			let ctxSize = stContext.maxContext;
+			let ctxSize = 0;
+
+			const apiMode = stContext.mainApi.toLowerCase();
+			if (apiMode == "textgenerationwebui")
+			{
+				ctxSize = stContext.maxContext;
+			}
+			else if (apiMode == "openai")
+			{
+				ctxSize = stContext.chatCompletionSettings.openai_max_context;
+			}
+			else
+			{
+				stContext.callGenericPopup("[ILS] Unsupported Mode: '" + stContext.mainApi + "'.");
+				stContext.activateSendButtons();
+				ilsInstance.operationLock = false;
+				return
+			}
+
 			let promptSize = stContext.getTokenCount(summaryPrompt);
 
 			// Very primitive check against <10% of context size.

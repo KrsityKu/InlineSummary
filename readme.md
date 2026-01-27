@@ -56,8 +56,8 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
-#### v1.0.7
-Fixed the prompt length check using Text Completion context size value at all times.
+#### v1.0.8
+Connection Profiles and Chat Completion Presets will now be disabled if `Connection Profiles` extension is disabled.
 
 ### Previous Changes
 See `changelog.md`

@@ -107,6 +107,17 @@ function MakeSpinner()
 	return spinner;
 }
 
+function ShowError(text, exception)
+{
+	let errText = "[ILS] " + text;
+	if (exception)
+	{
+		errText += "\nError Info:\n" + exception;
+	}
+	console.error(errText);
+	stContext.callGenericPopup(errText, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+}
+
 // =========================
 // Selection Helpers
 // =========================
@@ -341,8 +352,8 @@ const kMsgActionButtons = [
 			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages, stContext);
 
-			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>";
-			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "";
+			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>" && ilsInstance.connProfEnabled;
+			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "" && ilsInstance.connProfEnabled;
 
 			let prevProfile = "";
 			let prevPreset = "";
@@ -354,8 +365,7 @@ const kMsgActionButtons = [
 				stContext = SillyTavern.getContext(); // Update context just in case
 				if (swapResult.isError)
 				{
-					console.error("[ILS] Failed to swap connection profile to: " + gSettings.profileName);
-					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					ShowError("Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.");
 					stContext.activateSendButtons();
 					ilsInstance.operationLock = false;
 					return;
@@ -371,8 +381,7 @@ const kMsgActionButtons = [
 				stContext = SillyTavern.getContext(); // Update context just in case
 				if (swapResult.isError)
 				{
-					console.error("[ILS] Failed to swap preset to: " + gSettings.presetName);
-					stContext.callGenericPopup("[ILS] Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					ShowError("Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
 					stContext.activateSendButtons();
 					ilsInstance.operationLock = false;
 					return;
@@ -394,7 +403,7 @@ const kMsgActionButtons = [
 			}
 			else
 			{
-				stContext.callGenericPopup("[ILS] Unsupported Mode: '" + stContext.mainApi + "'.");
+				ShowError("Unsupported Mode: '" + stContext.mainApi + "'.");
 				stContext.activateSendButtons();
 				ilsInstance.operationLock = false;
 				return
@@ -482,8 +491,7 @@ const kMsgActionButtons = [
 				const swapResult = await stContext.executeSlashCommands("/profile " + prevProfile);
 				if (swapResult.isError)
 				{
-					console.error("[ILS] Failed to swap connection profile to: " + prevProfile);
-					stContext.callGenericPopup("[ILS] Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					ShowError("Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
 				}
 			}
 
@@ -492,8 +500,7 @@ const kMsgActionButtons = [
 				const swapResult = await stContext.executeSlashCommands("/preset " + prevPreset);
 				if (swapResult.isError)
 				{
-					console.error("[ILS] Failed to swap preset to: " + prevPreset);
-					stContext.callGenericPopup("[ILS] Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+					ShowError("Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
 				}
 			}
 
@@ -706,7 +713,7 @@ function RefreshMessageElements(messageDiv, msgIndex)
 		const msgButton = messageDiv.querySelector("." + def.className);
 		if (msgButton)
 		{
-			msgButton.style.display = (def.ShowCondition && !def.ShowCondition(msgIndex)) ? "none" : "flex";
+			msgButton.style.display = (def.ShowCondition && !def.ShowCondition(msgIndex)) ? "none" : null;
 			msgButton.style.color = def.GetColor ? def.GetColor(msgIndex) : kMsgBtnColours.default;
 		}
 	});
@@ -1047,6 +1054,7 @@ function OnChatChanged(data)
 async function UpdateSettingsUI()
 {
 	const stContext = SillyTavern.getContext();
+	const ilsInstance = GetILSInstance();
 
 	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
@@ -1066,11 +1074,37 @@ async function UpdateSettingsUI()
 	if (radio)
 		radio.checked = true;
 
-	const profileListRes = await stContext.executeSlashCommands("/profile-list");
-	if (profileListRes.isError)
+	// Do Connection Profile stuff last so we can early return on errors
+	const connectionManagerRes = await stContext.executeSlashCommands("/extension-state connection-manager");
+	if (connectionManagerRes.pipe != "true")
 	{
-		console.error("[ILS] Failed to fetch Connection Profile list");
-		stContext.callGenericPopup("[ILS] Failed to fetch Connection Profile list", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		$("#ils_setting_use_different_profile").prop("disabled", true);
+		$("#ils_setting_use_different_preset").prop("disabled", true);
+		$("#ils_setting_connection_profile").prop("disabled", true);
+		$("#ils_setting_chat_completion_preset").prop("disabled", true);
+
+		ilsInstance.connProfEnabled = false;
+		return;
+	}
+	else
+	{
+		ilsInstance.connProfEnabled = true;
+	}
+
+	let profileListRes = null;
+	try
+	{
+		profileListRes = await stContext.executeSlashCommandsWithOptions("/profile-list", { handleParserErrors : false });
+	}
+	catch (e)
+	{
+		ShowError("Failed to run '/profile-list'.\nIs the 'Connection Profiles' extension enabled?", e);
+		return;
+	}
+
+	if (profileListRes == null || profileListRes.isError)
+	{
+		ShowError("Failed to fetch Connection Profile list.");
 		return;
 	}
 
@@ -1106,8 +1140,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		console.error("[ILS] Failed to populate connection profile dropdown: " + e);
-		stContext.callGenericPopup("[ILS] Failed to populate connection profile dropdown: " + e, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		ShowError("Failed to populate connection profile dropdown.", e)
 	}
 
 	const presetManager = stContext.getPresetManager();
@@ -1138,8 +1171,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		console.error("[ILS] Failed to populate Preset dropdown: " + e);
-		stContext.callGenericPopup("[ILS] Failed to populate Preset dropdown: " + e, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+		ShowError("Failed to populate Preset dropdown.", e);
 	}
 }
 

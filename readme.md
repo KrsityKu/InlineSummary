@@ -1,4 +1,4 @@
-# InLine Summaries — a SillyTavern Extension
+# Inline Summary — a SillyTavern Extension
 
 ## AI Disclaimer
 The code for this extension was AI-generated, then manually edited and refactored so the final result is around 65% AI.<br>

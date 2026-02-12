@@ -63,12 +63,16 @@ Yes, the Connection Profile one.
 ## Known Incompatibilities
 
 _**Chat Style - Document**_<br>
-This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.
+This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
+_**Text Completion**_<br>
+In text completion mode `Connection Profile` or `Chat Completion Preset` are not supported and might create odd results.<br>
+`Chat Completion Preset` option shows a list of numbers when Text Completion mode is active. Swapping to chat completion and refreshing the page should fix it.<br>
 
 ## Changelog
 
-#### v1.0.8
-Connection Profiles and Chat Completion Presets will now be disabled if `Connection Profiles` extension is disabled.
+#### v1.0.9
+Fixed summary regeneration not using connection profile/preset.
+Added summary prompt size checks and autmated historical context trimming if it exceeds allowed context size.
 
 ### Previous Changes
 See `changelog.md`

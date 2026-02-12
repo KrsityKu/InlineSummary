@@ -1,5 +1,9 @@
 # Full Changelog
 
+#### v1.0.9
+Fixed summary regeneration not using connection profile/preset.
+Added summary prompt size checks and autmated historical context trimming if it exceeds allowed context size.
+
 #### v1.0.8
 Connection Profiles and Chat Completion Presets will now be disabled if `Connection Profiles` extension is disabled.
 

@@ -52,6 +52,8 @@ const kDefaultSettings = Object.freeze({
 // Includes/API/Globals
 // =========================
 
+import { amount_gen as textMaxTokens } from "../../../../script.js";
+
 let gSettings = {};
 const kILSGlobalKey = Symbol.for("InlineSummary.ILS");
 
@@ -107,7 +109,7 @@ function MakeSpinner()
 	return spinner;
 }
 
-function ShowError(text, exception)
+function ShowError(stContext, text, exception)
 {
 	let errText = "[ILS] " + text;
 	if (exception)
@@ -198,14 +200,14 @@ function CreateEmptySummaryMessage(originalMessages, stContext)
 		case "user":
 			summary.name = stContext.name1;
 			summary.is_user = true;
-			break
+			break;
 		case "character":
 			summary.name = stContext.name2;
-			break
+			break;
 		case "custom":
 		default:
 			summary.name = gSettings.summaryName;
-			break
+			break;
 	}
 
 	// Store original messages
@@ -224,7 +226,89 @@ async function BringIntoView(msgIndex)
 	await Sleep(100);
 
 	const stContext = SillyTavern.getContext();
-	await stContext.executeSlashCommands(`/chat-scrollto ${msgIndex}`);
+	await stContext.executeSlashCommandsWithOptions(`/chat-scrollto ${msgIndex}`);
+}
+
+// =========================
+// Generation Functions
+// =========================
+
+async function SwapToSummaryProfile(stContext, ilsInstance)
+{
+	let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>" && ilsInstance.connProfEnabled;
+	let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "" && ilsInstance.connProfEnabled;
+
+	let success = true;
+
+	let prevProfile = "";
+	let prevPreset = "";
+	if (useDifferentProfile)
+	{
+		prevProfile = (await stContext.executeSlashCommandsWithOptions("/profile")).pipe;
+
+		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + gSettings.profileName);
+		stContext = SillyTavern.getContext(); // Update context just in case
+		if (swapResult.isError)
+		{
+			ShowError(stContext, "Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.");
+			success = false;
+		}
+	}
+
+	if (useDifferentPreset && success)
+	{
+		const presetManager = stContext.getPresetManager();
+		prevPreset = presetManager.getSelectedPresetName();
+
+		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + gSettings.presetName);
+		stContext = SillyTavern.getContext(); // Update context just in case
+		if (swapResult.isError)
+		{
+			ShowError(stContext, "Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
+			success = false;
+		}
+	}
+
+	return { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset };
+}
+
+async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset)
+{
+	if (useDifferentProfile)
+	{
+		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + prevProfile);
+		if (swapResult.isError)
+		{
+			ShowError(stContext, "Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
+		}
+	}
+
+	if (useDifferentPreset)
+	{
+		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + prevPreset);
+		if (swapResult.isError)
+		{
+			ShowError(stContext, "Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
+		}
+	}
+}
+
+function GetContextSize(stContext)
+{
+	const apiMode = stContext.mainApi?.toLowerCase();
+
+	switch (apiMode)
+	{
+		case "textgenerationwebui":
+			return { ctxOk: true, ctxSize: stContext.maxContext, resSize: textMaxTokens };
+
+		case "openai":
+			return { ctxOk: true, ctxSize: stContext.chatCompletionSettings.openai_max_context, resSize: stContext.chatCompletionSettings.openai_max_tokens };
+
+		default:
+			ShowError(stContext, "Unsupported Mode: '" + stContext.mainApi + "'.");
+			return { ctxOk: false, ctxSize: 0, resSize: 0 };
+	}
 }
 
 // =========================
@@ -348,86 +432,30 @@ const kMsgActionButtons = [
 			ilsInstance.operationLock = true;
 			stContext.deactivateSendButtons();
 
-			// Prepare original messages and prompt
-			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-			const summaryPrompt = MakeSummaryPrompt(selection.start, originalMessages, stContext);
+			// Swap Profile
+			const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
 
-			let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>" && ilsInstance.connProfEnabled;
-			let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "" && ilsInstance.connProfEnabled;
-
-			let prevProfile = "";
-			let prevPreset = "";
-			if (useDifferentProfile)
+			if (!success)
 			{
-				prevProfile = (await stContext.executeSlashCommands("/profile")).pipe;
-
-				const swapResult = await stContext.executeSlashCommands("/profile " + gSettings.profileName);
-				stContext = SillyTavern.getContext(); // Update context just in case
-				if (swapResult.isError)
-				{
-					ShowError("Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.");
-					stContext.activateSendButtons();
-					ilsInstance.operationLock = false;
-					return;
-				}
-			}
-
-			if (useDifferentPreset)
-			{
-				const presetManager = stContext.getPresetManager();
-				prevPreset = presetManager.getSelectedPresetName();
-
-				const swapResult = await stContext.executeSlashCommands("/preset " + gSettings.presetName);
-				stContext = SillyTavern.getContext(); // Update context just in case
-				if (swapResult.isError)
-				{
-					ShowError("Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
-					stContext.activateSendButtons();
-					ilsInstance.operationLock = false;
-					return;
-				}
-			}
-
-			// To Do: Make this better to properly count prompt size, and reduce history, etc.
-			let isCloseToMax = false;
-			let ctxSize = 0;
-
-			const apiMode = stContext.mainApi.toLowerCase();
-			if (apiMode == "textgenerationwebui")
-			{
-				ctxSize = stContext.maxContext;
-			}
-			else if (apiMode == "openai")
-			{
-				ctxSize = stContext.chatCompletionSettings.openai_max_context;
-			}
-			else
-			{
-				ShowError("Unsupported Mode: '" + stContext.mainApi + "'.");
 				stContext.activateSendButtons();
 				ilsInstance.operationLock = false;
-				return
+				return;
 			}
 
-			let promptSize = stContext.getTokenCount(summaryPrompt);
+			// Prepare original messages and prompt
+			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+			const { promptOk, promptText, promptError } = MakeSummaryPrompt(selection.start, originalMessages, stContext);
 
-			// Very primitive check against <10% of context size.
-			// To Do: actually get allowed response size
-			let remainingContext = ctxSize - promptSize;
-			if (remainingContext < ctxSize * 0.1)
-				isCloseToMax = true;
-
-			if (remainingContext <= 0)
+			if (!promptOk)
 			{
-				stContext.callGenericPopup("[ILS] Summary Prompt is larger than allowed context: " + promptSize + " vs " + ctxSize
-					+ "\n\nSummarise a smaller range or reduce historical context.");
+				ShowError(stContext, "Failed to make summary prompt.\n" + promptError);
 				stContext.activateSendButtons();
 				ilsInstance.operationLock = false;
 				return
 			}
 
 			// Start LLM generation asynchronously without awaiting yet
-			let promptParams = { prompt: summaryPrompt };
+			let promptParams = { prompt: promptText };
 			if (gSettings.tokenLimit > 0)
 				promptParams.responseLength = gSettings.tokenLimit;
 
@@ -473,10 +501,7 @@ const kMsgActionButtons = [
 			catch (e)
 			{
 				console.error("[ILS] Failed to get response from LLM");
-				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nRaw Error:\n" + e;
-
-				if (isCloseToMax)
-					response += "\n[ILS] Prompt was close to max context size. Maybe try summarising a smaller range or reduce historical context.";
+				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n" + e;
 			}
 
 			// Update the summary message in the backend with the generated response
@@ -486,23 +511,7 @@ const kMsgActionButtons = [
 			await stContext.saveChat();
 			await stContext.reloadCurrentChat();
 
-			if (useDifferentProfile)
-			{
-				const swapResult = await stContext.executeSlashCommands("/profile " + prevProfile);
-				if (swapResult.isError)
-				{
-					ShowError("Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
-				}
-			}
-
-			if (useDifferentPreset)
-			{
-				const swapResult = await stContext.executeSlashCommands("/preset " + prevPreset);
-				if (swapResult.isError)
-				{
-					ShowError("Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
-				}
-			}
+			await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
 
 			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
@@ -550,7 +559,7 @@ const kMsgActionButtons = [
 			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 
 			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
-			newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]";
+			newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]\nEdit this message and write a summary.";
 
 			// Delete Originals
 			stContext.chat.splice(selection.start, originalMessages.length);
@@ -626,7 +635,7 @@ const kHeaderButtons = [
 
 		async OnClick(msgIndex)
 		{
-			const stContext = SillyTavern.getContext();
+			let stContext = SillyTavern.getContext();
 
 			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
 			if (!HasOriginalMessages(summaryMsg))
@@ -639,9 +648,27 @@ const kHeaderButtons = [
 			ilsInstance.operationLock = true;
 			stContext.deactivateSendButtons();
 
-			const summaryPrompt = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey], stContext);
+			// Swap Profile
+			const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
 
-			const responsePromise = stContext.generateRaw({ prompt: summaryPrompt });
+			if (!success)
+			{
+				stContext.activateSendButtons();
+				ilsInstance.operationLock = false;
+				return;
+			}
+
+			const { promptOk, promptText, promptError } = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey], stContext);
+
+			if (!promptOk)
+			{
+				ShowError(stContext, "Failed to make summary prompt.\n" + promptError);
+				stContext.activateSendButtons();
+				ilsInstance.operationLock = false;
+				return
+			}
+
+			const responsePromise = stContext.generateRaw({ prompt: promptText });
 
 			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
 			if (summaryMsgElement)
@@ -666,7 +693,7 @@ const kHeaderButtons = [
 			catch (e)
 			{
 				console.error("[ILS] Failed to get response from LLM");
-				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nRaw Error:\n"
+				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n"
 					+ e
 					+ "\n\n[Previous Summary]\n\n"
 					+ summaryMsg.mes;
@@ -678,6 +705,8 @@ const kHeaderButtons = [
 			// Save and reload to reflect the final response in the UI
 			await stContext.saveChat();
 			await stContext.reloadCurrentChat();
+
+			await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
 
 			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
@@ -771,49 +800,93 @@ function RefreshMessageElements(messageDiv, msgIndex)
 // Summary Functions
 // =========================
 
-function MakeSummaryPrompt(megIndex, originalMessages, stContext)
+function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 {
+	let { ctxOk, ctxSize, resSize } = GetContextSize(stContext);
+
+	if (!ctxOk)
+		return { promptOk: false, promptText: "", promptError: "Could not get context size." };
+
+	if (gSettings.tokenLimit > 0)
+		resSize = gSettings.tokenLimit;
+
+	const maxContext = ctxSize - resSize;
+	let remainingSize = maxContext;
+
 	// Generate Summary Prompt
-	// - Add Main Prompt
-	let summaryPrompt = gSettings.startPrompt;
 
-	// - Add Historical Context
-	summaryPrompt += "\n" + gSettings.historicalContextStartMarker;
-	let histContextStart = 0;
-	if (gSettings.historicalContexDepth >= 0)
-	{
-		histContextStart = megIndex - gSettings.historicalContexDepth;
-		if (histContextStart < 0)
-			histContextStart = 0;
-	}
+	// Add Main Prompt
+	const startPrompt = gSettings.startPrompt;
+	remainingSize -= stContext.getTokenCount(startPrompt);
 
-	for (let i = histContextStart; i < megIndex; i++)
-	{
-		const msgText = GetMessageByIndex(i, stContext).mes.trim();
-		if (msgText.length > 0)
-			summaryPrompt += "\n" + msgText;
-	}
-	summaryPrompt += "\n" + gSettings.historicalContextEndMarker;
+	// Setup Mid-Prompt
+	const midPrompt = (gSettings.midPrompt !== "") ? "\n" + gSettings.midPrompt : "";
+	remainingSize -= stContext.getTokenCount(midPrompt);
 
-	// - Add Mid Prompt
-	if (gSettings.midPrompt !== "")
-		summaryPrompt += "\n" + gSettings.midPrompt;
+	// Setup End-Prompt
+	const endPrompt = gSettings.endPrompt !== "" ? "\n" + gSettings.endPrompt : "";
+	remainingSize -= stContext.getTokenCount(endPrompt);
 
-	// - Add Content to Summarise
-	summaryPrompt += "\n" + gSettings.sumariseStartMarker;
+	// Check if Prompt fits
+	if (remainingSize < 0)
+		return { promptOk: false, promptText: "", promptError: "Prompt instructions too big for context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
+
+	// - Content to Summarise
+	let messagesToSummarise = "\n" + gSettings.sumariseStartMarker;;
 	for (const msg of originalMessages)
 	{
 		const msgText = msg.mes.trim();
 		if (msgText.length > 0)
-			summaryPrompt += "\n" + msgText;
+			messagesToSummarise += "\n" + msgText;
 	}
-	summaryPrompt += "\n" + gSettings.sumariseEndMarker;
+	messagesToSummarise += "\n" + gSettings.sumariseEndMarker;
+	remainingSize -= stContext.getTokenCount(messagesToSummarise);
 
-	// - Add End Prompt
-	if (gSettings.endPrompt !== "")
-		summaryPrompt += "\n" + gSettings.endPrompt;
+	if (remainingSize < 0)
+		return { promptOk: false, promptText: "", promptError: "Too many messages for context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
 
-	return summaryPrompt;
+	// Historic Context
+	let historicContex = "";
+	let histContextStart = 0;
+	if (gSettings.historicalContexDepth >= 0)
+	{
+		histContextStart = msgIndex - gSettings.historicalContexDepth;
+		if (histContextStart < 0)
+			histContextStart = 0;
+	}
+
+	const histCtxLabels = "\n" + gSettings.historicalContextStartMarker + "\n" + gSettings.historicalContextEndMarker;
+
+	for (let i = msgIndex - 1; i >= histContextStart; --i)
+	{
+		const msgText = GetMessageByIndex(i, stContext).mes.trim();
+		if (msgText.length > 0)
+		{
+			const tokenCost = stContext.getTokenCount(histCtxLabels + msgText);
+			if ((remainingSize - tokenCost) > 0)
+			{
+				historicContex = msgText + historicContex;
+			}
+			// Context too full
+			else
+			{
+				break;
+			}
+		}
+	}
+
+	// Append Historic Context
+	const summaryPrompt = startPrompt
+		+ "\n" + gSettings.historicalContextStartMarker + historicContex + "\n" + gSettings.historicalContextEndMarker
+		+ midPrompt
+		+ messagesToSummarise
+		+ endPrompt;
+
+	const finalSize = stContext.getTokenCount(summaryPrompt);
+	if (finalSize > maxContext)
+		return { promptOk: false, promptText: "", promptError: "Final summary prompt exceeded context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
+
+	return { promptOk: true, promptText: summaryPrompt, promptError: "" };
 }
 
 // =========================
@@ -1075,7 +1148,7 @@ async function UpdateSettingsUI()
 		radio.checked = true;
 
 	// Do Connection Profile stuff last so we can early return on errors
-	const connectionManagerRes = await stContext.executeSlashCommands("/extension-state connection-manager");
+	const connectionManagerRes = await stContext.executeSlashCommandsWithOptions("/extension-state connection-manager");
 	if (connectionManagerRes.pipe != "true")
 	{
 		$("#ils_setting_use_different_profile").prop("disabled", true);
@@ -1098,13 +1171,13 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		ShowError("Failed to run '/profile-list'.\nIs the 'Connection Profiles' extension enabled?", e);
+		ShowError(stContext, "Failed to run '/profile-list'.\nIs the 'Connection Profiles' extension enabled?", e);
 		return;
 	}
 
 	if (profileListRes == null || profileListRes.isError)
 	{
-		ShowError("Failed to fetch Connection Profile list.");
+		ShowError(stContext, "Failed to fetch Connection Profile list.");
 		return;
 	}
 
@@ -1140,7 +1213,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		ShowError("Failed to populate connection profile dropdown.", e)
+		ShowError(stContext, "Failed to populate connection profile dropdown.", e)
 	}
 
 	const presetManager = stContext.getPresetManager();
@@ -1171,7 +1244,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		ShowError("Failed to populate Preset dropdown.", e);
+		ShowError(stContext, "Failed to populate Preset dropdown.", e);
 	}
 }
 

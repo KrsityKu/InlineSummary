@@ -1,7 +1,7 @@
 # Full Changelog
 
 #### v1.0.9
-Fixed summary regeneration not using connection profile/preset.
+Fixed summary regeneration not using connection profile/preset.<br>
 Added summary prompt size checks and autmated historical context trimming if it exceeds allowed context size.
 
 #### v1.0.8

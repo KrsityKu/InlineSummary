@@ -997,8 +997,8 @@ function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, pa
 	messageRoot.appendChild(headerRow);
 
 	const contentDiv = document.createElement("div");
-	contentDiv.className = "mes_text";
-	contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0, true, false);
+	contentDiv.className = "ils_mes_text";
+	contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0);
 	messageRoot.appendChild(contentDiv);
 
 	if (HasOriginalMessages(msgObject))

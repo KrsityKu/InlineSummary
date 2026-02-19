@@ -70,9 +70,8 @@ In text completion mode `Connection Profile` or `Chat Completion Preset` are not
 
 ## Changelog
 
-#### v1.0.9
-Fixed summary regeneration not using connection profile/preset.<br>
-Added summary prompt size checks and autmated historical context trimming if it exceeds allowed context size.
+#### v1.0.10
+Changed Original Messages CSS style to be a copy, instead of reusing 'mes_text', this fixes editing summary when original messages are in the expanded state.
 
 ### Previous Changes
 See `changelog.md`

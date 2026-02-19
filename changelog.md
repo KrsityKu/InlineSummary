@@ -1,5 +1,10 @@
 # Full Changelog
 
+#### v1.0.11
+Fixed `Original Messages` not appearing on chat messages when after they were hidden by the visible message limit.<br>
+Added `/ils-sumarise` command. Usage: ``/ils-sumarise x y` or `/ils-sumarise manual=[true|false] x y` where x and y are start and stop message indices; `manual` mode inserts an placeholder summary message instead of using LLM.<br>
+Changed error messages to use toast popups.
+
 #### v1.0.10
 Changed Original Messages CSS style to be a copy, instead of reusing 'mes_text', this fixes editing summary when original messages are in the expanded state.
 

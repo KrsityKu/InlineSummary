@@ -109,7 +109,7 @@ function MakeSpinner()
 	return spinner;
 }
 
-function ShowError(stContext, text, exception)
+function ShowError(text, exception)
 {
 	let errText = "[ILS] " + text;
 	if (exception)
@@ -117,7 +117,7 @@ function ShowError(stContext, text, exception)
 		errText += "\nError Info:\n" + exception;
 	}
 	console.error(errText);
-	stContext.callGenericPopup(errText, stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+	toastr.error(errText);
 }
 
 // =========================
@@ -250,7 +250,7 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 		stContext = SillyTavern.getContext(); // Update context just in case
 		if (swapResult.isError)
 		{
-			ShowError(stContext, "Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.");
+			ShowError("Failed to swap connection profile to:\n" + gSettings.profileName + "\nGeneration Aborted.");
 			success = false;
 		}
 	}
@@ -264,7 +264,7 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 		stContext = SillyTavern.getContext(); // Update context just in case
 		if (swapResult.isError)
 		{
-			ShowError(stContext, "Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
+			ShowError("Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
 			success = false;
 		}
 	}
@@ -279,7 +279,7 @@ async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevPr
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/profile " + prevProfile);
 		if (swapResult.isError)
 		{
-			ShowError(stContext, "Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
+			ShowError("Failed to restore connection profile to:\n" + gSettings.profileName + "\nPlease check the profile manually.");
 		}
 	}
 
@@ -288,7 +288,7 @@ async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevPr
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + prevPreset);
 		if (swapResult.isError)
 		{
-			ShowError(stContext, "Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
+			ShowError("Failed to restore preset to:\n" + gSettings.profileName + "\nPlease check the preset manually.");
 		}
 	}
 }
@@ -306,9 +306,145 @@ function GetContextSize(stContext)
 			return { ctxOk: true, ctxSize: stContext.chatCompletionSettings.openai_max_context, resSize: stContext.chatCompletionSettings.openai_max_tokens };
 
 		default:
-			ShowError(stContext, "Unsupported Mode: '" + stContext.mainApi + "'.");
+			ShowError("Unsupported Mode: '" + stContext.mainApi + "'.");
 			return { ctxOk: false, ctxSize: 0, resSize: 0 };
 	}
+}
+
+async function GenerateSummaryAI()
+{
+	let stContext = SillyTavern.getContext();
+	const selection = GetSelection(stContext);
+	if (!IsValidRangeSelection(selection))
+		return;
+
+	const ilsInstance = GetILSInstance()
+	if (ilsInstance.operationLock)
+		return;
+
+	ilsInstance.operationLock = true;
+	stContext.deactivateSendButtons();
+
+	// Swap Profile
+	const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
+
+	if (!success)
+	{
+		stContext.activateSendButtons();
+		ilsInstance.operationLock = false;
+		return;
+	}
+
+	// Prepare original messages and prompt
+	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+	const { promptOk, promptText, promptError } = MakeSummaryPrompt(selection.start, originalMessages, stContext);
+
+	if (!promptOk)
+	{
+		ShowError("Failed to make summary prompt.\n" + promptError);
+		stContext.activateSendButtons();
+		ilsInstance.operationLock = false;
+		return
+	}
+
+	// Start LLM generation asynchronously without awaiting yet
+	let promptParams = { prompt: promptText };
+	if (gSettings.tokenLimit > 0)
+		promptParams.responseLength = gSettings.tokenLimit;
+
+	const responsePromise = stContext.generateRaw(promptParams);
+
+	// create empty summary message while generation runs
+	const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
+	newSummaryMsg.mes = "Generating...";
+
+	// Delete Originals
+	stContext.chat.splice(selection.start, originalMessages.length);
+	// Insert summary message into chat and save/reload
+	stContext.chat.splice(selection.start, 0, newSummaryMsg);
+
+	await stContext.saveChat();
+	await stContext.reloadCurrentChat();
+
+	// Find and update the HTML element for the summary message with a loading spinner
+	{
+		const summaryMsgElement = document.querySelector(`.mes[mesid="${selection.start}"]`);
+		if (summaryMsgElement)
+		{
+			const mesTextElement = summaryMsgElement.querySelector(".mes_text");
+			if (mesTextElement)
+			{
+				// Create and insert loading spinner
+				// We don't need to delete the spinner as reloading the chat will destroy it for us.
+				const spinner = MakeSpinner();
+				mesTextElement.innerHTML = "";
+				mesTextElement.appendChild(spinner);
+			}
+		}
+	}
+
+	BringIntoView(selection.start)
+
+	// Now await for the LLM response to complete
+	let response = "";
+	try
+	{
+		response = await responsePromise;
+	}
+	catch (e)
+	{
+		console.error("[ILS] Failed to get response from LLM");
+		response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n" + e;
+	}
+
+	// Update the summary message in the backend with the generated response
+	stContext.chat[selection.start].mes = response;
+
+	// Save and reload to reflect the final response in the UI
+	await stContext.saveChat();
+	await stContext.reloadCurrentChat();
+
+	await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
+
+	stContext.activateSendButtons();
+	ilsInstance.operationLock = false;
+
+	BringIntoView(selection.start);
+
+	ClearSelection(stContext);
+}
+
+async function GenerateSummaryManual()
+{
+	const stContext = SillyTavern.getContext();
+	const selection = GetSelection(stContext);
+	if (!IsValidRangeSelection(selection))
+		return;
+
+	const ilsInstance = GetILSInstance()
+	if (ilsInstance.operationLock)
+		return;
+
+	ilsInstance.operationLock = true;
+
+	// Prepare original messages and prompt
+	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
+
+	const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
+	newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]\nEdit this message and write a summary.";
+
+	// Delete Originals
+	stContext.chat.splice(selection.start, originalMessages.length);
+	// Add Summary
+	stContext.chat.splice(selection.start, 0, newSummaryMsg);
+
+	await stContext.saveChat();
+	await stContext.reloadCurrentChat();
+
+	BringIntoView(selection.start);
+	ilsInstance.operationLock = false;
+
+	ClearSelection(stContext);
 }
 
 // =========================
@@ -420,105 +556,7 @@ const kMsgActionButtons = [
 
 		async OnClick(msgIndex)
 		{
-			let stContext = SillyTavern.getContext();
-			const selection = GetSelection(stContext);
-			if (!IsValidRangeSelection(selection))
-				return;
-
-			const ilsInstance = GetILSInstance()
-			if (ilsInstance.operationLock)
-				return;
-
-			ilsInstance.operationLock = true;
-			stContext.deactivateSendButtons();
-
-			// Swap Profile
-			const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
-
-			if (!success)
-			{
-				stContext.activateSendButtons();
-				ilsInstance.operationLock = false;
-				return;
-			}
-
-			// Prepare original messages and prompt
-			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-			const { promptOk, promptText, promptError } = MakeSummaryPrompt(selection.start, originalMessages, stContext);
-
-			if (!promptOk)
-			{
-				ShowError(stContext, "Failed to make summary prompt.\n" + promptError);
-				stContext.activateSendButtons();
-				ilsInstance.operationLock = false;
-				return
-			}
-
-			// Start LLM generation asynchronously without awaiting yet
-			let promptParams = { prompt: promptText };
-			if (gSettings.tokenLimit > 0)
-				promptParams.responseLength = gSettings.tokenLimit;
-
-			const responsePromise = stContext.generateRaw(promptParams);
-
-			// create empty summary message while generation runs
-			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
-			newSummaryMsg.mes = "Generating...";
-
-			// Delete Originals
-			stContext.chat.splice(selection.start, originalMessages.length);
-			// Insert summary message into chat and save/reload
-			stContext.chat.splice(selection.start, 0, newSummaryMsg);
-
-			await stContext.saveChat();
-			await stContext.reloadCurrentChat();
-
-			// Find and update the HTML element for the summary message with a loading spinner
-			{
-				const summaryMsgElement = document.querySelector(`.mes[mesid="${selection.start}"]`);
-				if (summaryMsgElement)
-				{
-					const mesTextElement = summaryMsgElement.querySelector(".mes_text");
-					if (mesTextElement)
-					{
-						// Create and insert loading spinner
-						// We don't need to delete the spinner as reloading the chat will destroy it for us.
-						const spinner = MakeSpinner();
-						mesTextElement.innerHTML = "";
-						mesTextElement.appendChild(spinner);
-					}
-				}
-			}
-
-			BringIntoView(selection.start)
-
-			// Now await for the LLM response to complete
-			let response = "";
-			try
-			{
-				response = await responsePromise;
-			}
-			catch (e)
-			{
-				console.error("[ILS] Failed to get response from LLM");
-				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n" + e;
-			}
-
-			// Update the summary message in the backend with the generated response
-			stContext.chat[selection.start].mes = response;
-
-			// Save and reload to reflect the final response in the UI
-			await stContext.saveChat();
-			await stContext.reloadCurrentChat();
-
-			await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
-
-			stContext.activateSendButtons();
-			ilsInstance.operationLock = false;
-
-			BringIntoView(selection.start);
-
-			ClearSelection(stContext);
+			await GenerateSummaryAI();
 		},
 
 		GetColor(msgIndex)
@@ -544,35 +582,7 @@ const kMsgActionButtons = [
 
 		async OnClick(msgIndex)
 		{
-			const stContext = SillyTavern.getContext();
-			const selection = GetSelection(stContext);
-			if (!IsValidRangeSelection(selection))
-				return;
-
-			const ilsInstance = GetILSInstance()
-			if (ilsInstance.operationLock)
-				return;
-
-			ilsInstance.operationLock = true;
-
-			// Prepare original messages and prompt
-			const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-
-			const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
-			newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]\nEdit this message and write a summary.";
-
-			// Delete Originals
-			stContext.chat.splice(selection.start, originalMessages.length);
-			// Add Summary
-			stContext.chat.splice(selection.start, 0, newSummaryMsg);
-
-			await stContext.saveChat();
-			await stContext.reloadCurrentChat();
-
-			BringIntoView(selection.start);
-			ilsInstance.operationLock = false;
-
-			ClearSelection(stContext);
+			await GenerateSummaryManual();
 		},
 
 		GetColor(msgIndex)
@@ -662,7 +672,7 @@ const kHeaderButtons = [
 
 			if (!promptOk)
 			{
-				ShowError(stContext, "Failed to make summary prompt.\n" + promptError);
+				ShowError("Failed to make summary prompt.\n" + promptError);
 				stContext.activateSendButtons();
 				ilsInstance.operationLock = false;
 				return
@@ -1121,6 +1131,39 @@ function OnChatChanged(data)
 	ClearSelection(SillyTavern.getContext());
 }
 
+function OnMoreMsgLoaded(data)
+{
+	RefreshAllMessageButtons();
+}
+
+// =========================
+// Slash Command Handling
+// =========================
+async function SummariseCommand(namedArgs, unnamedArgs)
+{
+	const stContext = SillyTavern.getContext();
+	const selection = GetSelection(stContext);
+
+	const idParams = String(unnamedArgs).split(' ');
+
+	selection.start = idParams[0] ? Math.max(0, parseInt(idParams[0], 10)) : null;
+	selection.end = idParams[1] ? Math.min(parseInt(idParams[1], 10), stContext.chat.length - 1) : null;
+
+	if (!IsValidRangeSelection(selection))
+	{
+		toastr.error("[ILS] Invalid message range: " + String(selection.start) + " - " + String(selection.end));
+		ClearSelection(stContext);
+		return "";
+	}
+
+	const manualMode = String(namedArgs.manual).trim().toLowerCase();
+	if (manualMode == "true")
+		await GenerateSummaryManual();
+	else
+		await GenerateSummaryAI();
+	return "";
+}
+
 // =========================
 // Settings Handling
 // =========================
@@ -1167,17 +1210,17 @@ async function UpdateSettingsUI()
 	let profileListRes = null;
 	try
 	{
-		profileListRes = await stContext.executeSlashCommandsWithOptions("/profile-list", { handleParserErrors : false });
+		profileListRes = await stContext.executeSlashCommandsWithOptions("/profile-list", { handleParserErrors: false });
 	}
 	catch (e)
 	{
-		ShowError(stContext, "Failed to run '/profile-list'.\nIs the 'Connection Profiles' extension enabled?", e);
+		ShowError("Failed to run '/profile-list'.\nIs the 'Connection Profiles' extension enabled?", e);
 		return;
 	}
 
 	if (profileListRes == null || profileListRes.isError)
 	{
-		ShowError(stContext, "Failed to fetch Connection Profile list.");
+		ShowError("Failed to fetch Connection Profile list.");
 		return;
 	}
 
@@ -1213,7 +1256,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		ShowError(stContext, "Failed to populate connection profile dropdown.", e)
+		ShowError("Failed to populate connection profile dropdown.", e)
 	}
 
 	const presetManager = stContext.getPresetManager();
@@ -1244,7 +1287,7 @@ async function UpdateSettingsUI()
 	}
 	catch (e)
 	{
-		ShowError(stContext, "Failed to populate Preset dropdown.", e);
+		ShowError("Failed to populate Preset dropdown.", e);
 	}
 }
 
@@ -1444,9 +1487,49 @@ jQuery(async () =>
 		stContext.eventSource.on(stContext.eventTypes.CHAT_CHANGED, OnChatChanged);
 		ilsInstance.chatChangedRegistered = true;
 	}
+	if (!ilsInstance.moreMessagesLoadedRegistered)
+	{
+		stContext.eventSource.on(stContext.eventTypes.MORE_MESSAGES_LOADED, OnMoreMsgLoaded);
+		ilsInstance.moreMessagesLoadedRegistered = true;
+	}
 
 	document.removeEventListener("click", MainClickHandler);
 	document.addEventListener("click", MainClickHandler);
+
+	stContext.SlashCommandParser.addCommandObject(stContext.SlashCommand.fromProps({
+		name: "ils-summarise",
+		callback: SummariseCommand,
+		namedArgumentList: [
+			stContext.SlashCommandNamedArgument.fromProps({
+				name: 'manual',
+				description: 'Insert manual summary message instead of using AI.',
+				typeList: stContext.ARGUMENT_TYPE.BOOLEAN,
+				defaultValue: 'false',
+			}),
+		],
+		unnamedArgumentList: [
+			stContext.SlashCommandArgument.fromProps({
+				description: 'First message index',
+				typeList: stContext.ARGUMENT_TYPE.NUMBER,
+				isRequired: true,
+			}),
+			stContext.SlashCommandArgument.fromProps({
+				description: 'Last message index',
+				typeList: stContext.ARGUMENT_TYPE.NUMBER,
+				isRequired: true,
+			}),
+		],
+		helpString: `
+		<div>
+			Summarise the specified range of messages using AI. Inclusive range, must be at least 2 mesages long.
+		</div>
+		<div>
+			<strong>Examples:</strong>
+			<pre><code class="language-stscript">/ils-summarise 8 16</code></pre>
+			<pre><code class="language-stscript">/ils-summarise manual=true 10 20</code></pre>
+		</div>
+	`
+	}));
 
 	console.log("[ILS] Inline Summary - Ready");
 });

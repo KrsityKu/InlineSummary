@@ -1,4 +1,4 @@
-//  SillyTavern - Inline Summaries Extension
+//  SillyTavern - Inline Summary Extension
 
 // =========================
 // Constants
@@ -36,8 +36,8 @@ const kDefaultSettings = Object.freeze({
 	historicalContexDepth: -1,
 	historicalContextStartMarker: "<Historical_Context>",
 	historicalContextEndMarker: "</Historical_Context>",
-	sumariseStartMarker: "<Content_To_Summarise>",
-	sumariseEndMarker: "</Content_To_Summarise>",
+	sumariseStartMarker: "<Content_To_Summarise>", // Oops, a typo, should be summariseStartMarker, but fixing it would break saved settings.
+	sumariseEndMarker: "</Content_To_Summarise>", // Oops, a typo, should be summariseEndMarker, but fixing it would break saved settings.
 	tokenLimit: 0,
 	useDifferentProfile: false,
 	profileName: "<None>",
@@ -842,14 +842,20 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 		return { promptOk: false, promptText: "", promptError: "Prompt instructions too big for context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
 
 	// - Content to Summarise
-	let messagesToSummarise = "\n" + gSettings.sumariseStartMarker;;
+	let messagesToSummarise = "";
 	for (const msg of originalMessages)
 	{
-		const msgText = msg.mes.trim();
-		if (msgText.length > 0)
-			messagesToSummarise += "\n" + msgText;
+		if (!msg.is_system)
+		{
+			const msgText = msg.mes.trim();
+			if (msgText.length > 0)
+				messagesToSummarise += "\n" + msgText;
+		}
 	}
-	messagesToSummarise += "\n" + gSettings.sumariseEndMarker;
+	if (messagesToSummarise.length == 0)
+		return { promptOk: false, promptText: "", promptError: "No messages to summarise. Are all messages in the selected range hidden or blank?" };
+
+	messagesToSummarise = "\n" + gSettings.sumariseStartMarker + messagesToSummarise + "\n" + gSettings.sumariseEndMarker;
 	remainingSize -= stContext.getTokenCount(messagesToSummarise);
 
 	if (remainingSize < 0)
@@ -869,18 +875,22 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 
 	for (let i = msgIndex - 1; i >= histContextStart; --i)
 	{
-		const msgText = GetMessageByIndex(i, stContext).mes.trim();
-		if (msgText.length > 0)
+		const msg = GetMessageByIndex(i, stContext);
+		if (!msg.is_system)
 		{
-			const tokenCost = stContext.getTokenCount(histCtxLabels + msgText);
-			if ((remainingSize - tokenCost) > 0)
+			const msgText = msg.mes.trim();
+			if (msgText.length > 0)
 			{
-				historicContex = msgText + historicContex;
-			}
-			// Context too full
-			else
-			{
-				break;
+				const tokenCost = stContext.getTokenCount(histCtxLabels + msgText);
+				if ((remainingSize - tokenCost) > 0)
+				{
+					historicContex = msgText + historicContex;
+				}
+				// Context too full
+				else
+				{
+					break;
+				}
 			}
 		}
 	}
@@ -1396,7 +1406,7 @@ jQuery(async () =>
 	const settingsHtml = await $.get(kSettingsFile);
 
 	const $extensions = $("#extensions_settings");
-	const $existing = $extensions.find(".inline-summaries-settings");
+	const $existing = $extensions.find(".inline-summary-settings");
 	if ($existing.length > 0)
 		$existing.replaceWith(settingsHtml);
 	else

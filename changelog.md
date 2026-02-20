@@ -1,8 +1,11 @@
 # Full Changelog
 
+#### v1.0.12
+Fixed messages marked as hidden included in summary prompts.
+
 #### v1.0.11
 Fixed `Original Messages` not appearing on chat messages when after they were hidden by the visible message limit.<br>
-Added `/ils-sumarise` command. Usage: `/ils-sumarise x y` or `/ils-sumarise manual=[true|false] x y` where x and y are start and stop message indices; `manual` mode inserts an placeholder summary message instead of using LLM.<br>
+Added `/ils-summarise` command. Usage: `/ils-summarise x y` or `/ils-summarise manual=[true|false] x y` where x and y are start and stop message indices; `manual` mode inserts an placeholder summary message instead of using an AI.<br>
 Changed error messages to use toast popups.
 
 #### v1.0.10

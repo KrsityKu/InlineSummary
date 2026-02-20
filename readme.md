@@ -24,6 +24,13 @@ Summary messages will contain an expandable header which contains the original m
 The **Restore Original and Delete Summary** ( <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/7.x/svgs/solid/file-arrow-up.svg" width="12" height="12"> ) button will detele the summary and restore the original messages.<br>
 The **Re-Summarise (AI)** ( <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/7.x/svgs/solid/robot.svg" width="12" height="12"> ) will regenerate a new summary using the stored original messages.
 
+#### Slash Command
+`/ils-summarise manual=[true|false] x y` is avalable to generate a summary.<br>
+Usage: `x` and `y` are start and stop message indices, when `manual` is set to `true` inserts an placeholder summary message instead of using an AI (Same as the **Manual Summary** button).<br>
+##### Examples:
+* `/ils-summarise 1 10` - summarise messages 1 through 10 inclusive using AI.
+* `/ils-summarise manual=true 1 10` - add a placeholder summary for messages 1 through 10.
+
 ## How does it work?
 When a range is selected, the extension creates a new empty summary message and inserts it into the chat.<br>
 The selected messages are stored in the `extra` data field of the new summary message.<br>
@@ -34,6 +41,25 @@ A end-prompt is appended (also defined in the settings).<br>
 This complete prompt is sent to the LLM using the current connection profile or a specific profile if the option is enabled.<br>
 Once the LLM is done, the contents of the summary message are replaced with the response. The chat is saved and refreshed.<br>
 When the **Restore** button is pressed, the summary message is deleted and the original messages are reinserted into the chat.<br>
+
+## Settings
+Settings in the Extension settings menu:
+| Setting | Meaning |
+| :--- | :--- |
+| Summary Prompt Start | Prompt text inserted at the start of the summary generation prompt |
+| Historical Context Size | Number of messages to include in the summary generation prompt. -1 for auto (it will try to fit as many as it can to fill the allowed context window. 0 for none) |
+| Historical Context Start Marker | Marker that indicates the start of the historical context |
+| Historical Context End Marker | Marker that indicates the end of the historical context |
+| Summary Prompt Middle | Prompt text inserted after the historical context, but before the messages to be summarised |
+| Content Start Marker | Marker that indicates the start of the messages to be summarised |
+| Content End Marker | Marker that indicates the end of the messages to be summarised |
+| Summary Prompt End | Prompt text inserted after the messages to be summarised |
+| Response Token Limit | Maximum summary length allowed in tokens, 0 to use value set in the preset |
+| Use specified Connection Profile | Use the connection profile selected in the dropdown for generating summaries |
+| Use specified Chat Completion Preset | Use the Chat Completion Preset selected in the dropdown for generating summaries |
+| Auto Scroll to summarised message | Whether or not automatically scroll chat to the summarised message, summary generation causes that to refresh, and SillyTavern's default behaviour is to scroll to tbe bottom |
+| Summary message sender name | Summary messages can have custom sender name, it can either be: User, Character or Custom. If your preset includes name prefixes, using a custom name might hint LLM that specific message is a summary. |
+| Reset to Default | Press this button to reset all settings to defaults |
 
 ## FAQ
 
@@ -64,16 +90,15 @@ Yes, the Connection Profile one.
 
 _**Chat Style - Document**_<br>
 This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
-_**Text Completion**_<br>
-In text completion mode `Connection Profile` or `Chat Completion Preset` are not supported and might create odd results.<br>
-`Chat Completion Preset` option shows a list of numbers when Text Completion mode is active. Swapping to chat completion and refreshing the page should fix it.<br>
+_**Text Completion/NovelAI/AI Horde/KoboldAI Classic**_<br>
+`Chat Completion Preset` Is specific to Chat Completion and in other modes it is not supported and might create odd results.<br>
+If the dropdown shows odd results,s wapping to chat completion and refreshing the page should fix it.<br>
+Support for Text Completion presets is planned for a future update.<br>
 
 ## Changelog
 
-#### v1.0.11
-Fixed `Original Messages` not appearing on chat messages when after they were hidden by the visible message limit.<br>
-Added `/ils-sumarise` command. Usage: `/ils-sumarise x y` or `/ils-sumarise manual=[true|false] x y` where x and y are start and stop message indices; `manual` mode inserts an placeholder summary message instead of using LLM.<br>
-Changed error messages to use toast popups.
+#### v1.0.12
+Fixed messages marked as hidden included in summary prompts.
 
 ### Previous Changes
 See `changelog.md`

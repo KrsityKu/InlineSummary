@@ -97,6 +97,9 @@ Support for Text Completion presets is planned for a future update.<br>
 
 ## Changelog
 
+#### v1.0.13
+Fixed Re-Summarise not respecting token limit setting.
+
 #### v1.0.12
 Fixed messages marked as hidden included in summary prompts.
 

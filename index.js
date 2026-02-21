@@ -678,7 +678,11 @@ const kHeaderButtons = [
 				return
 			}
 
-			const responsePromise = stContext.generateRaw({ prompt: promptText });
+			let promptParams = { prompt: promptText };
+			if (gSettings.tokenLimit > 0)
+				promptParams.responseLength = gSettings.tokenLimit;
+
+			const responsePromise = stContext.generateRaw(promptParams);
 
 			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
 			if (summaryMsgElement)

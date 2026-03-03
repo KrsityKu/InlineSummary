@@ -2,25 +2,33 @@
 import sys
 import cssutils
 from pathlib import Path
+import re
 
-def transform_selector(selector_text):
+# List of exact class names to duplicate
+CLASS_NAMES = ["mes_text", "mes_img"]
+
+def transform_selector(selector_text, class_names):
 	"""
 	Takes a selector string (possibly comma-separated),
-	keeps only parts containing .mes_text,
-	replaces .mes_text with .ils_mes_text.
+	finds selectors containing any class in class_names,
+	and makes a copy with 'ils_' prefix.
 	"""
 	selectors = [s.strip() for s in selector_text.split(",")]
 	new_selectors = []
 
 	for sel in selectors:
-		if ".mes_text" in sel:
-			new_sel = sel.replace(".mes_text", ".ils_mes_text")
-			new_selectors.append(new_sel)
+		for cls in class_names:
+			# Match exact class name using word boundary \b
+			pattern = rf"(?<![-\w])\.{cls}(?![-\w])"
+			if re.search(pattern, sel):
+				new_sel = re.sub(pattern, f".ils_{cls}", sel)
+				new_selectors.append(new_sel)
+				break  # Avoid duplicating the same selector for multiple classes
 
 	return ", ".join(new_selectors)
 
 
-def extract_mes_text_rules(input_path, output_path):
+def extract_rules_with_classes(input_path, output_path, class_names):
 	cssutils.log.setLevel("FATAL")  # suppress warnings
 
 	sheet = cssutils.parseFile(input_path)
@@ -28,9 +36,8 @@ def extract_mes_text_rules(input_path, output_path):
 
 	for rule in sheet:
 		if rule.type == rule.STYLE_RULE:
-			if ".mes_text" in rule.selectorText:
-				new_selector = transform_selector(rule.selectorText)
-
+			if any(re.search(rf"(?<![-\w])\.{cls}(?![-\w])", rule.selectorText) for cls in class_names):
+				new_selector = transform_selector(rule.selectorText, class_names)
 				if new_selector:
 					new_rule = cssutils.css.CSSStyleRule(
 						selectorText=new_selector,
@@ -38,20 +45,20 @@ def extract_mes_text_rules(input_path, output_path):
 					)
 					new_sheet.add(new_rule)
 
-		# Optional: copy @keyframes, @media etc. if they contain mes_text
+		# Handle @media rules (can extend to other at-rules if needed)
 		elif rule.type in (rule.MEDIA_RULE,):
 			media_rule = cssutils.css.CSSMediaRule(mediaText=rule.media.mediaText)
-
 			for subrule in rule.cssRules:
-				if subrule.type == subrule.STYLE_RULE and ".mes_text" in subrule.selectorText:
-					new_selector = transform_selector(subrule.selectorText)
+				if subrule.type == subrule.STYLE_RULE and any(
+					re.search(rf"(?<![-\w])\.{cls}(?![-\w])", subrule.selectorText) for cls in class_names
+				):
+					new_selector = transform_selector(subrule.selectorText, class_names)
 					if new_selector:
 						new_rule = cssutils.css.CSSStyleRule(
 							selectorText=new_selector,
 							style=subrule.style.cssText
 						)
 						media_rule.add(new_rule)
-
 			if media_rule.cssRules:
 				new_sheet.add(media_rule)
 
@@ -60,7 +67,7 @@ def extract_mes_text_rules(input_path, output_path):
 
 if __name__ == "__main__":
 	input_css = "../../../../style.css"
-	output_css = "ils_mes_text.css"
+	output_css = "ils_styles.css"
 
-	extract_mes_text_rules(input_css, output_css)
+	extract_rules_with_classes(input_css, output_css, CLASS_NAMES)
 	print(f"Generated {output_css} from {input_css}")

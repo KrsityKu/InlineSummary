@@ -163,7 +163,7 @@ So instead python scirpt generates equivalent style that can be used instead, th
 	padding: 1em
 }
 
-.ils_mes_text img:not(.mes_img) {
+.ils_mes_text img:not(.ils_mes_img) {
 	max-width: 100%;
 	max-height: var(--doc-height)
 }
@@ -200,4 +200,11 @@ So instead python scirpt generates equivalent style that can be used instead, th
 
 .ils_mes_text hr {
 	opacity: 0.4
+}
+
+.ils_mes_img {
+	max-width: 100%;
+	max-height: 40vh;
+	image-rendering: -webkit-optimize-contrast;
+	/* cursor: pointer */
 }

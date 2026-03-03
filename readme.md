@@ -1,7 +1,7 @@
 # Inline Summary — a SillyTavern Extension
 
 ## AI Disclaimer
-The code for this extension was AI-generated, then manually edited and refactored so the final result is around 65% AI.<br>
+The code for this extension was AI-generated, then manually edited and refactored so the final result is around 60% AI.<br>
 I'm a C++ programmer, and this is my first time touching JavaScript, hence the vibecoding.<br>
 
 ## What does it do?
@@ -46,6 +46,7 @@ When the **Restore** button is pressed, the summary message is deleted and the o
 Settings in the Extension settings menu:
 | Setting | Meaning |
 | :--- | :--- |
+| Setting Presets | Saved setting presets for the extension  |
 | Summary Prompt Start | Prompt text inserted at the start of the summary generation prompt |
 | Historical Context Size | Number of messages to include in the summary generation prompt. -1 for auto (it will try to fit as many as it can to fill the allowed context window. 0 for none) |
 | Historical Context Start Marker | Marker that indicates the start of the historical context |
@@ -56,10 +57,9 @@ Settings in the Extension settings menu:
 | Summary Prompt End | Prompt text inserted after the messages to be summarised |
 | Response Token Limit | Maximum summary length allowed in tokens, 0 to use value set in the preset |
 | Use specified Connection Profile | Use the connection profile selected in the dropdown for generating summaries |
-| Use specified Chat Completion Preset | Use the Chat Completion Preset selected in the dropdown for generating summaries |
+| Use specified API Preset | Use the API Preset selected in the dropdown for generating summaries |
 | Auto Scroll to summarised message | Whether or not automatically scroll chat to the summarised message, summary generation causes that to refresh, and SillyTavern's default behaviour is to scroll to tbe bottom |
-| Summary message sender name | Summary messages can have custom sender name, it can either be: User, Character or Custom. If your preset includes name prefixes, using a custom name might hint LLM that specific message is a summary. |
-| Reset to Default | Press this button to reset all settings to defaults |
+| Summary message sender name | Summary messages can have custom sender name, it can either be: User, Character or Custom. If your preset includes name prefixes, using a custom name might hint LLM that specific message is a summary |
 
 ## FAQ
 
@@ -81,7 +81,7 @@ No idea. This extension directly manipulates chat and stores/restores messages w
 
 _**Can I select a specific Connection Profile/Chat Completion Preset for the summary?**_<br>
 Yes. Since v1.0.2<br>
-⚠ Warning: Any unsaved changes to `Connection Profile` or `Chat Completion Preset` or `AI Reponse Template` will be lost during profile change.
+⚠ Warning: Any unsaved changes to `Connection Profile` or `API Presets` or `AI Reponse Template` will be lost during profile change.
 
 _**Has anyone actually asked these questions?**_<br>
 Yes, the Connection Profile one.
@@ -90,18 +90,14 @@ Yes, the Connection Profile one.
 
 _**Chat Style - Document**_<br>
 This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
-_**Text Completion/NovelAI/AI Horde/KoboldAI Classic**_<br>
-`Chat Completion Preset` Is specific to Chat Completion and in other modes it is not supported and might create odd results.<br>
-If the dropdown shows odd results,s wapping to chat completion and refreshing the page should fix it.<br>
-Support for Text Completion presets is planned for a future update.<br>
 
 ## Changelog
 
-#### v1.0.13
-Fixed Re-Summarise not respecting token limit setting.
-
-#### v1.0.12
-Fixed messages marked as hidden included in summary prompts.
+#### v1.1.0
+All API modes should now be supported for custom presets.<br>
+Ability to have multiple setting presets and import/export them has been added (Note, some saved settings have been reset to defaults).<br>
+Original Messages now preview images that have been included in the summary range.<br>
+Original Messages section header now has info about how many messages were used in the summary (not marked as hidden) and total token estimate (only real messages count, summaries inside orgiignal messages will count as 0)
 
 ### Previous Changes
 See `changelog.md`

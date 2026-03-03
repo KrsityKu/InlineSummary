@@ -36,16 +36,16 @@ const kDefaultSettings = Object.freeze({
 	historicalContexDepth: -1,
 	historicalContextStartMarker: "<Historical_Context>",
 	historicalContextEndMarker: "</Historical_Context>",
-	sumariseStartMarker: "<Content_To_Summarise>", // Oops, a typo, should be summariseStartMarker, but fixing it would break saved settings.
-	sumariseEndMarker: "</Content_To_Summarise>", // Oops, a typo, should be summariseEndMarker, but fixing it would break saved settings.
+	summariseStartMarker: "<Content_To_Summarise>",
+	summariseEndMarker: "</Content_To_Summarise>",
 	tokenLimit: 0,
 	useDifferentProfile: false,
 	profileName: "<None>",
-	useDifferentPreset: false,
-	presetName: "",
+	useDifferentApiPreset: false,
+	apiPresets: {},
 	autoScroll: true,
 	summaryNameMode: "custom",
-	summaryName: "Summary"
+	summaryName: "Summary",
 });
 
 // =========================
@@ -53,8 +53,11 @@ const kDefaultSettings = Object.freeze({
 // =========================
 
 import { amount_gen as textMaxTokens } from "../../../../script.js";
+import { download, getSanitizedFilename } from '../../../../scripts/utils.js';
+import { POPUP_RESULT, Popup } from '../../../../scripts/popup.js';
 
 let gSettings = {};
+let gSpName = "Default";
 const kILSGlobalKey = Symbol.for("InlineSummary.ILS");
 
 function GetILSInstance()
@@ -113,11 +116,18 @@ function ShowError(text, exception)
 {
 	let errText = "[ILS] " + text;
 	if (exception)
-	{
 		errText += "\nError Info:\n" + exception;
-	}
 	console.error(errText);
 	toastr.error(errText);
+}
+
+function ShowWarning(text, exception)
+{
+	let errText = "[ILS] " + text;
+	if (exception)
+		errText += "\nWarning Info:\n" + exception;
+	console.warn(errText);
+	toastr.warning(errText);
 }
 
 // =========================
@@ -156,26 +166,43 @@ function IsValidRangeSelection(selection)
 // =========================
 async function LoadSettings(stContext)
 {
-	if (!stContext.extensionSettings[kExtensionName])
-		stContext.extensionSettings[kExtensionName] = {};
+	// Get or Initialise root settings
+	stContext.extensionSettings[kExtensionName] ??= {};
+	let rootSettings = stContext.extensionSettings[kExtensionName];
 
+	// Get Settings name
+	let settingPresetName = rootSettings.spName ?? "Default";
+	rootSettings.spName = settingPresetName;
+
+	let activeSettings = rootSettings;
+
+	// Ensure Presets initialized when not using Default.
+	if (settingPresetName !== "Default")
+	{
+		rootSettings.spData ??= {};
+		rootSettings.spData[settingPresetName] ??= {};
+		activeSettings = rootSettings.spData[settingPresetName];
+	}
+
+	const defaultsJson = await $.get(kDefaultsFile);
 	for (const settingKey of Object.keys(kDefaultSettings))
 	{
-		if (!Object.hasOwn(stContext.extensionSettings[kExtensionName], settingKey))
+		if (Object.hasOwn(activeSettings, settingKey))
+			continue;
+
+		switch (settingKey)
 		{
-			if (settingKey == "startPrompt")
-			{
-				const defaultsJson = await $.get(kDefaultsFile);
-				stContext.extensionSettings[kExtensionName].startPrompt = defaultsJson.defaultPrompt;
-			}
-			else
-			{
-				stContext.extensionSettings[kExtensionName][settingKey] = kDefaultSettings[settingKey];
-			}
+			case "startPrompt":
+				activeSettings.startPrompt = defaultsJson.defaultPrompt;
+				break;
+
+			default:
+				activeSettings[settingKey] = kDefaultSettings[settingKey];
+				break;
 		}
 	}
 
-	return stContext.extensionSettings[kExtensionName];
+	return [activeSettings, settingPresetName];
 }
 
 // =========================
@@ -235,8 +262,11 @@ async function BringIntoView(msgIndex)
 
 async function SwapToSummaryProfile(stContext, ilsInstance)
 {
+	const apiMode = stContext.mainApi?.toLowerCase();
+	const presetName = gSettings?.apiPresets?.[apiMode] ?? "";
+
 	let useDifferentProfile = gSettings.useDifferentProfile && gSettings.profileName !== "" && gSettings.profileName !== "<None>" && ilsInstance.connProfEnabled;
-	let useDifferentPreset = gSettings.useDifferentPreset && gSettings.presetName !== "" && ilsInstance.connProfEnabled;
+	let useDifferentApiPreset = gSettings.useDifferentApiPreset && presetName !== "" && ilsInstance.connProfEnabled;
 
 	let success = true;
 
@@ -255,24 +285,24 @@ async function SwapToSummaryProfile(stContext, ilsInstance)
 		}
 	}
 
-	if (useDifferentPreset && success)
+	if (useDifferentApiPreset && success)
 	{
 		const presetManager = stContext.getPresetManager();
 		prevPreset = presetManager.getSelectedPresetName();
 
-		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + gSettings.presetName);
+		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + presetName);
 		stContext = SillyTavern.getContext(); // Update context just in case
 		if (swapResult.isError)
 		{
-			ShowError("Failed to swap connection profile to:\n" + gSettings.presetName + "\nGeneration Aborted.");
+			ShowError("Failed to swap API Preset " + apiMode + " to:\n" + presetName + "\nGeneration Aborted.");
 			success = false;
 		}
 	}
 
-	return { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset };
+	return { success, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset };
 }
 
-async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset)
+async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset)
 {
 	if (useDifferentProfile)
 	{
@@ -283,7 +313,7 @@ async function SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevPr
 		}
 	}
 
-	if (useDifferentPreset)
+	if (useDifferentApiPreset)
 	{
 		const swapResult = await stContext.executeSlashCommandsWithOptions("/preset " + prevPreset);
 		if (swapResult.isError)
@@ -300,6 +330,9 @@ function GetContextSize(stContext)
 	switch (apiMode)
 	{
 		case "textgenerationwebui":
+		case "novel":
+		case "koboldhorde":
+		case "kobold":
 			return { ctxOk: true, ctxSize: stContext.maxContext, resSize: textMaxTokens };
 
 		case "openai":
@@ -326,7 +359,7 @@ async function GenerateSummaryAI()
 	stContext.deactivateSendButtons();
 
 	// Swap Profile
-	const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
+	const { success, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
 
 	if (!success)
 	{
@@ -404,7 +437,7 @@ async function GenerateSummaryAI()
 	await stContext.saveChat();
 	await stContext.reloadCurrentChat();
 
-	await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
+	await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset);
 
 	stContext.activateSendButtons();
 	ilsInstance.operationLock = false;
@@ -659,7 +692,7 @@ const kHeaderButtons = [
 			stContext.deactivateSendButtons();
 
 			// Swap Profile
-			const { success, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
+			const { success, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset } = await SwapToSummaryProfile(stContext, ilsInstance);
 
 			if (!success)
 			{
@@ -720,7 +753,7 @@ const kHeaderButtons = [
 			await stContext.saveChat();
 			await stContext.reloadCurrentChat();
 
-			await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentPreset, prevPreset);
+			await SwapBackFromSummaryProfile(stContext, useDifferentProfile, prevProfile, useDifferentApiPreset, prevPreset);
 
 			stContext.activateSendButtons();
 			ilsInstance.operationLock = false;
@@ -859,7 +892,7 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 	if (messagesToSummarise.length == 0)
 		return { promptOk: false, promptText: "", promptError: "No messages to summarise. Are all messages in the selected range hidden or blank?" };
 
-	messagesToSummarise = "\n" + gSettings.sumariseStartMarker + messagesToSummarise + "\n" + gSettings.sumariseEndMarker;
+	messagesToSummarise = "\n" + gSettings.summariseStartMarker + messagesToSummarise + "\n" + gSettings.summariseEndMarker;
 	remainingSize -= stContext.getTokenCount(messagesToSummarise);
 
 	if (remainingSize < 0)
@@ -978,7 +1011,14 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	containerHeader.appendChild(buttonsDiv);
 
 	const headerLabel = document.createElement("div");
-	headerLabel.textContent = `Original Messages (${originals.length})`;
+	let origTokens = 0;
+	let visMsg = 0;
+	for (const msg of originals)
+	{
+		visMsg += msg?.is_system ? 0 : 1;
+		origTokens += Number(msg?.extra?.token_count ?? 0) || 0;
+	}
+	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens`;
 
 	const expandIcon = document.createElement("div");
 	expandIcon.className = "ils_expand_icon mes_button fa-solid fa-caret-right";
@@ -1022,7 +1062,28 @@ function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, pa
 
 	const contentDiv = document.createElement("div");
 	contentDiv.className = "ils_mes_text";
-	contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0);
+
+	// Rewrite this part to be better
+	if (Array.isArray(msgObject.extra?.media) && msgObject.extra.media.length > 0)
+	{
+		const mediaArray = msgObject.extra.media;
+		const requestedIndex = Number.isInteger(msgObject.extra.media_index) ? msgObject.extra.media_index : 0;
+		const safeIndex = (requestedIndex >= 0 && requestedIndex < mediaArray.length) ? requestedIndex : 0;
+
+		const mediaItem = mediaArray[safeIndex];
+		if (mediaItem?.url)
+		{
+			const imgElem = document.createElement("img");
+			imgElem.className = "ils_mes_img";
+			imgElem.src = mediaItem.url;
+			contentDiv.appendChild(imgElem);
+		}
+	}
+	else
+	{
+		contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0);
+	}
+
 	messageRoot.appendChild(contentDiv);
 
 	if (HasOriginalMessages(msgObject))
@@ -1150,6 +1211,11 @@ function OnMoreMsgLoaded(data)
 	RefreshAllMessageButtons();
 }
 
+function OnMainApiChanged(data)
+{
+	UpdateSettingsUI();
+}
+
 // =========================
 // Slash Command Handling
 // =========================
@@ -1189,8 +1255,8 @@ async function UpdateSettingsUI()
 	$("#ils_setting_hist_ctx_depth").val(gSettings.historicalContexDepth);
 	$("#ils_setting_hist_ctx_start").val(gSettings.historicalContextStartMarker);
 	$("#ils_setting_hist_ctx_end").val(gSettings.historicalContextEndMarker);
-	$("#ils_setting_summ_cont_start").val(gSettings.sumariseStartMarker);
-	$("#ils_setting_summ_cont_end").val(gSettings.sumariseEndMarker);
+	$("#ils_setting_summ_cont_start").val(gSettings.summariseStartMarker);
+	$("#ils_setting_summ_cont_end").val(gSettings.summariseEndMarker);
 	$("#ils_setting_prompt_main").val(gSettings.startPrompt);
 	$("#ils_setting_prompt_mid").val(gSettings.midPrompt);
 	$("#ils_setting_prompt_end").val(gSettings.endPrompt);
@@ -1198,18 +1264,35 @@ async function UpdateSettingsUI()
 	$("#ils_setting_smr_name_custom_val").val(gSettings.summaryName);
 	$("#ils_setting_auto_scroll").prop("checked", gSettings.autoScroll);
 	$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
-	$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
+	$("#ils_setting_use_specified_api_preset").prop("checked", gSettings.useDifferentApiPreset);
 
 	const radio = document.querySelector(`input[name="ils_setting_radio_smr_name"][value="${gSettings.summaryNameMode}"]`);
 	if (radio)
 		radio.checked = true;
+
+	const spDropdown = $("#ils_setting_sp_combo");
+	if (spDropdown && spDropdown.length)
+	{
+		spDropdown.empty();
+		spDropdown.append($('<option>', { value: 'Default', text: 'Default' }));
+
+		stContext.extensionSettings[kExtensionName] ??= {};
+		let rootSettings = stContext.extensionSettings[kExtensionName];
+		rootSettings.spData ??= {};
+
+		for (const [custompreset] of Object.entries(rootSettings.spData))
+		{
+			spDropdown.append($('<option>', { value: custompreset, text: custompreset }));
+		}
+		spDropdown.val(gSpName);
+	}
 
 	// Do Connection Profile stuff last so we can early return on errors
 	const connectionManagerRes = await stContext.executeSlashCommandsWithOptions("/extension-state connection-manager");
 	if (connectionManagerRes.pipe != "true")
 	{
 		$("#ils_setting_use_different_profile").prop("disabled", true);
-		$("#ils_setting_use_different_preset").prop("disabled", true);
+		$("#ils_setting_use_specified_api_preset").prop("disabled", true);
 		$("#ils_setting_connection_profile").prop("disabled", true);
 		$("#ils_setting_chat_completion_preset").prop("disabled", true);
 
@@ -1260,11 +1343,14 @@ async function UpdateSettingsUI()
 			}
 			else if (gSettings.profileName !== "<None>")
 			{
-				gSettings.useDifferentProfile = false;
-				$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
-				profileDropdown.val("<None>");
-				stContext.saveSettingsDebounced();
-				stContext.callGenericPopup("[ILS] Warning - Saved profile:\n" + gSettings.profileName + "\nNot found. Using different profile has been disabled and reverted to <None>", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				if (gSettings.useDifferentProfile)
+				{
+					gSettings.useDifferentProfile = false;
+					$("#ils_setting_use_different_profile").prop("checked", gSettings.useDifferentProfile);
+					profileDropdown.val("<None>");
+					stContext.saveSettingsDebounced();
+					ShowWarning("Selected Connection Profile: '" + gSettings.profileName + "' not found.\nUsing different profile has been disabled and reverted to <None>.");
+				}
 			}
 		}
 	}
@@ -1274,6 +1360,7 @@ async function UpdateSettingsUI()
 	}
 
 	const presetManager = stContext.getPresetManager();
+	const apiMode = stContext.mainApi?.toLowerCase();
 
 	try
 	{
@@ -1282,20 +1369,47 @@ async function UpdateSettingsUI()
 		{
 			presetDropdown.empty();
 
-			const presetList = Object.keys(presetManager.getPresetList().preset_names);
-			for (const presName of presetList)
-				presetDropdown.append($('<option>', { value: presName, text: presName }));
+			const presetNames = presetManager.getPresetList().preset_names;
+			const presetList = Object.keys(presetNames);
+			const presetName = gSettings?.apiPresets?.[apiMode] ?? "";
 
-			if (gSettings.presetName && gSettings.presetName !== "" && presetList && presetList.includes(gSettings.presetName))
+			switch (apiMode)
 			{
-				presetDropdown.val(gSettings.presetName);
+				case "textgenerationwebui":
+					{
+						// Text Gen is 'Int - Name' pairs
+						for (const presetId of presetList)
+							presetDropdown.append($('<option>', { value: presetNames[presetId], text: presetNames[presetId] }));
+					}
+					break;
+				case "openai":
+				case "novel":
+				case "koboldhorde":
+				case "kobold":
+					{
+						// These APIs are  'Name - Int' pairs
+						for (const presName of presetList)
+							presetDropdown.append($('<option>', { value: presName, text: presName }));
+					}
+					break;
+				default:
+					ShowError("Unknow API Mode: " + apiMode);
+					break
 			}
-			else if (gSettings.presetName !== "")
+
+			if (presetName != "" && presetList.includes(presetName))
 			{
-				gSettings.useDifferentPreset = false;
-				$("#ils_setting_use_different_preset").prop("checked", gSettings.useDifferentPreset);
-				stContext.saveSettingsDebounced();
-				stContext.callGenericPopup("[ILS] Warning - Saved preset:\n" + gSettings.presetName + "\nNot found. Using different preset has been disabled.", stContext.POPUP_TYPE.TEXT, 'Error', { okButton: 'OK' });
+				presetDropdown.val(presetName);
+			}
+			else
+			{
+				if (gSettings.useDifferentApiPreset)
+				{
+					gSettings.useDifferentApiPreset = false;
+					$("#ils_setting_use_specified_api_preset").prop("checked", gSettings.useDifferentApiPreset);
+					stContext.saveSettingsDebounced();
+					ShowWarning("Selected API Preset (" + apiMode + "): '" + presetName + "' not found.\nUsing different preset has been disabled.");
+				}
 			}
 		}
 	}
@@ -1315,6 +1429,20 @@ function Debounce(fn, delay)
 	};
 }
 
+async function SwapProfile(profileName)
+{
+	const stContext = SillyTavern.getContext();
+
+	stContext.extensionSettings[kExtensionName] ??= {};
+	let rootSettings = stContext.extensionSettings[kExtensionName];
+	rootSettings.spName = profileName;
+
+	// Reload
+	[gSettings, gSpName] = await LoadSettings(stContext);
+	stContext.saveSettingsDebounced();
+	UpdateSettingsUI();
+}
+
 function OnSettingChanged(event)
 {
 	const id = event.target.id;
@@ -1322,6 +1450,9 @@ function OnSettingChanged(event)
 
 	switch (id)
 	{
+		case "ils_setting_sp_combo":
+			SwapProfile(val);
+			break;
 		case "ils_setting_hist_ctx_depth":
 			{
 				const parsed = parseInt(val, 10);
@@ -1341,10 +1472,10 @@ function OnSettingChanged(event)
 			gSettings.historicalContextEndMarker = val;
 			break;
 		case "ils_setting_summ_cont_start":
-			gSettings.sumariseStartMarker = val;
+			gSettings.summariseStartMarker = val;
 			break;
 		case "ils_setting_summ_cont_end":
-			gSettings.sumariseEndMarker = val;
+			gSettings.summariseEndMarker = val;
 			break;
 		case "ils_setting_prompt_main":
 			gSettings.startPrompt = val;
@@ -1358,11 +1489,16 @@ function OnSettingChanged(event)
 		case "ils_setting_connection_profile":
 			gSettings.profileName = val;
 			break;
-		case "ils_setting_use_different_preset":
-			gSettings.useDifferentPreset = event.target.checked;
+		case "ils_setting_use_specified_api_preset":
+			gSettings.useDifferentApiPreset = event.target.checked;
 			break;
 		case "ils_setting_chat_completion_preset":
-			gSettings.presetName = val;
+			{
+				const stContext = SillyTavern.getContext();
+				const apiMode = stContext.mainApi?.toLowerCase();
+				gSettings.apiPresets ??= {};
+				gSettings.apiPresets[apiMode] = val;
+			}
 			break;
 		case "ils_setting_auto_scroll":
 			gSettings.autoScroll = event.target.checked;
@@ -1387,11 +1523,145 @@ function OnSettingChanged(event)
 	stContext.saveSettingsDebounced();
 }
 
-async function OnSettingResetToDefault()
+async function OnSettingSpNew()
 {
 	const stContext = SillyTavern.getContext();
-	Object.keys(gSettings).forEach(key => delete gSettings[key]);
-	gSettings = await LoadSettings(stContext);
+
+	const nameInput = await Popup.show.input("New Preset", "Enter preset name:", "");
+	if (!nameInput || nameInput.length == 0)
+		return;
+
+	const spName = (await getSanitizedFilename(nameInput)).trim();
+	if (!spName || spName.length == 0)
+		return;
+
+	// Create new Entry
+	stContext.extensionSettings[kExtensionName] ??= {};
+	let rootSettings = stContext.extensionSettings[kExtensionName];
+	rootSettings.spName = spName;
+	rootSettings.spData ??= {};
+	rootSettings.spData[rootSettings.spName] = {};
+
+	// Reload
+	[gSettings, gSpName] = await LoadSettings(stContext);
+	stContext.saveSettingsDebounced();
+	UpdateSettingsUI();
+}
+
+async function OnSettingSpDelete()
+{
+	if (gSpName === "Default")
+	{
+		ShowError("'Default' settings preset cannot be deleted.");
+		return;
+	}
+
+	const confirm = await Popup.show.confirm("Confirmation", "Are you use you want to delete '" + gSpName + "'?");
+	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
+		return;
+
+	const spName = gSpName;
+
+	const stContext = SillyTavern.getContext();
+
+	// Set active preset to default
+	stContext.extensionSettings[kExtensionName] ??= {};
+	let rootSettings = stContext.extensionSettings[kExtensionName];
+	rootSettings.spName = "Default";
+
+	// Reload settings
+	[gSettings, gSpName] = await LoadSettings(stContext);
+
+	// Delete old preset
+	delete rootSettings.spData[spName];
+
+	// Refresh
+	stContext.saveSettingsDebounced();
+	UpdateSettingsUI();
+}
+
+async function OnSettingSpImportClick()
+{
+	$('#ils_setting_sp_import_file').trigger('click');
+}
+
+async function OnSettingSpImportFile(e)
+{
+	if (!(e.target instanceof HTMLInputElement))
+		return;
+
+	if (!e.target.files.length)
+		return;
+
+	const file = e.target.files[0];
+	const fullName = file.name;
+
+	if (!fullName.toLowerCase().endsWith(".json"))
+	{
+		ShowError("Please pick a json file.")
+		return;
+	}
+
+	const stContext = SillyTavern.getContext();
+	let baseName = fullName.slice(0, -5);
+
+	let data = {};
+
+	stContext.extensionSettings[kExtensionName] ??= {};
+	let rootSettings = stContext.extensionSettings[kExtensionName];
+	rootSettings.spData ??= {};
+
+	if (rootSettings.spData[baseName] || baseName === "Default")
+	{
+		let i = 1;
+		while (rootSettings.spData[`${baseName} (${i})`])
+			++i;
+
+		baseName = `${baseName} (${i})`;
+	}
+
+	try
+	{
+		const text = await file.text();
+		data = JSON.parse(text);
+	}
+	catch (err)
+	{
+		console.error("Failed to read or parse file:", err);
+	}
+
+	let newSettings = {};
+	Object.keys(data).forEach(key => { if (Object.hasOwn(kDefaultSettings, key)) newSettings[key] = data[key]; });
+	rootSettings.spData[baseName] = newSettings;
+	rootSettings.spName = baseName;
+
+	// Reload
+	[gSettings, gSpName] = await LoadSettings(stContext);
+	stContext.saveSettingsDebounced();
+	UpdateSettingsUI();
+}
+
+async function OnSettingSpExport()
+{
+	let settings = {};
+	Object.keys(gSettings).forEach(key => { if (Object.hasOwn(kDefaultSettings, key)) settings[key] = gSettings[key]; });
+	download(JSON.stringify(settings, null, "\t"), gSpName + ".json", "application/json");
+}
+
+async function OnSettingSpResetToDefault()
+{
+	const confirm = await Popup.show.confirm("Confirmation", "Are you use you reset '" + gSpName + "' to default settings?");
+	if (confirm !== POPUP_RESULT.AFFIRMATIVE)
+		return;
+
+	const stContext = SillyTavern.getContext();
+
+	// Delete Keys, except for preset specific ones
+	const keysToKeep = gSpName === "Default" ? new Set(["spName", "spData"]) : new Set();
+	Object.keys(gSettings).forEach(key => { if (!keysToKeep.has(key)) delete gSettings[key]; });
+
+	// Reload
+	[gSettings, gSpName] = await LoadSettings(stContext);
 	stContext.saveSettingsDebounced();
 	UpdateSettingsUI();
 }
@@ -1402,9 +1672,9 @@ async function OnSettingResetToDefault()
 jQuery(async () =>
 {
 	const stContext = SillyTavern.getContext();
-	const ilsInstance = GetILSInstance()
+	const ilsInstance = GetILSInstance();
 
-	gSettings = await LoadSettings(stContext);
+	[gSettings, gSpName] = await LoadSettings(stContext);
 
 	// Setup Settings Menu
 	const settingsHtml = await $.get(kSettingsFile);
@@ -1420,6 +1690,7 @@ jQuery(async () =>
 	await UpdateSettingsUI();
 
 	// Setup setting change handlers
+	$("#ils_setting_sp_combo").on("input", OnSettingChanged);
 	$("#ils_setting_hist_ctx_depth").on("input", OnSettingChanged);
 	$("#ils_setting_hist_ctx_start").on("input", Debounce(OnSettingChanged, 500));
 	$("#ils_setting_hist_ctx_end").on("input", Debounce(OnSettingChanged, 500));
@@ -1432,14 +1703,20 @@ jQuery(async () =>
 	$("#ils_setting_token_limit").on("input", OnSettingChanged);
 	$("#ils_setting_use_different_profile").on("change", OnSettingChanged);
 	$("#ils_setting_connection_profile").on("input", OnSettingChanged);
-	$("#ils_setting_use_different_preset").on("change", OnSettingChanged);
+	$("#ils_setting_use_specified_api_preset").on("change", OnSettingChanged);
 	$("#ils_setting_chat_completion_preset").on("input", OnSettingChanged);
 	$("#ils_setting_smr_name_mode_user").on("change", OnSettingChanged);
 	$("#ils_setting_smr_name_mode_char").on("change", OnSettingChanged);
 	$("#ils_setting_smr_name_mode_custom").on("change", OnSettingChanged);
 	$("#ils_setting_auto_scroll").on("change", OnSettingChanged);
 
-	$("#ils_setting_reset_default").on("click", OnSettingResetToDefault);
+	$("#ils_setting_sp_new").on("click", OnSettingSpNew);
+	$("#ils_setting_sp_delete").on("click", OnSettingSpDelete);
+	$("#ils_setting_sp_import").on("click", OnSettingSpImportClick);
+	$("#ils_setting_sp_export").on("click", OnSettingSpExport);
+	$("#ils_setting_sp_reset_default").on("click", OnSettingSpResetToDefault);
+
+	$("#ils_setting_sp_import_file").on("change", OnSettingSpImportFile);
 
 	// Message Action Buttons
 	const templateContainer = document.querySelector("#message_template .mes_buttons .extraMesButtons");
@@ -1496,15 +1773,20 @@ jQuery(async () =>
 	}
 
 	// Other Events
-	if (!ilsInstance.chatChangedRegistered)
+	const kEventsToRegister = [
+		{ type: stContext.eventTypes.CHAT_CHANGED, handler: OnChatChanged },
+		{ type: stContext.eventTypes.MORE_MESSAGES_LOADED, handler: OnMoreMsgLoaded },
+		{ type: stContext.eventTypes.MAIN_API_CHANGED, handler: OnMainApiChanged },
+	];
+
+	for (const { type, handler } of kEventsToRegister)
 	{
-		stContext.eventSource.on(stContext.eventTypes.CHAT_CHANGED, OnChatChanged);
-		ilsInstance.chatChangedRegistered = true;
-	}
-	if (!ilsInstance.moreMessagesLoadedRegistered)
-	{
-		stContext.eventSource.on(stContext.eventTypes.MORE_MESSAGES_LOADED, OnMoreMsgLoaded);
-		ilsInstance.moreMessagesLoadedRegistered = true;
+		const flagName = `evt_${type}_registered`;
+		if (!ilsInstance[flagName])
+		{
+			stContext.eventSource.on(type, handler);
+			ilsInstance[flagName] = true;
+		}
 	}
 
 	document.removeEventListener("click", MainClickHandler);

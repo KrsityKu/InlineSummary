@@ -1,5 +1,11 @@
 # Full Changelog
 
+#### v1.1.0
+All API modes should now be supported for custom presets.<br>
+Ability to have multiple setting presets and import/export them has been added (Note, some saved settings have been reset to defaults).<br>
+Original Messages now preview images that have been included in the summary range.<br>
+Original Messages section header now has info about how many messages were used in the summary (not marked as hidden) and total token estimate (only real messages count, summaries inside orgiignal messages will count as 0)
+
 #### v1.0.13
 Fixed Re-Summarise not respecting token limit setting.
 

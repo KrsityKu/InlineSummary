@@ -83,6 +83,11 @@ _**Can I select a specific Connection Profile/Chat Completion Preset for the sum
 Yes. Since v1.0.2<br>
 ⚠ Warning: Any unsaved changes to `Connection Profile` or `API Presets` or `AI Reponse Template` will be lost during profile change.
 
+_**How accurate is the token counter on Original Messages?**_<br>
+It uses SillyTavern's token counting function, which might be different from the actual model used. The stats are calculated during summary generation and cached. The token count that SillyTavern specifies for a message includes Reasoning tokens as well, while summary and chat history only use message text, therefore Original Messages specifically only count message text, which may not match actual model tokens perfectly, will still be more accurate than including reasoning.<br>
+For older chats before this feature was added, the token counts supplied by SillyTavern will be used.<br>
+In theory, if only models via Kobold API are used, the token counts should be accurate.
+
 _**Has anyone actually asked these questions?**_<br>
 Yes, the Connection Profile one.
 
@@ -92,6 +97,10 @@ _**Chat Style - Document**_<br>
 This specific style hides the Message Actions buttons from older messages, which also removes the buttons added by this extension. Bubbles and Flat styles do work.<br>
 
 ## Changelog
+
+#### v1.1.1
+Fixed end prompt not being saved.<br>
+The token counter for Original Messages is now more accurate (applies to new summaries or regenerated only).
 
 #### v1.1.0
 All API modes should now be supported for custom presets.<br>

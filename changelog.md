@@ -1,5 +1,9 @@
 # Full Changelog
 
+#### v1.1.1
+Fixed end prompt not being saved.<br>
+The token counter for Original Messages is now more accurate (applies to new summaries or regenerated only).
+
 #### v1.1.0
 All API modes should now be supported for custom presets.<br>
 Ability to have multiple setting presets and import/export them has been added (Note, some saved settings have been reset to defaults).<br>

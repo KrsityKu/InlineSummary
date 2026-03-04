@@ -9,6 +9,7 @@ const kSettingsFile = `${kExtensionFolderPath}/settings.html`;
 const kDefaultsFile = `${kExtensionFolderPath}/defaults.json`;
 const kExtraDataKey = "ILS_Data";
 const kOriginalMessagesKey = "OriginalMessages";
+const kMessageEstimatedTokenCountKey = "EstimatedTokens";
 
 const kMsgBtnColours = {
 	default: null,
@@ -213,7 +214,7 @@ function HasOriginalMessages(msgObject)
 	return msgObject && msgObject.extra && msgObject.extra[kExtraDataKey] && Array.isArray(msgObject.extra[kExtraDataKey][kOriginalMessagesKey]);
 }
 
-function CreateEmptySummaryMessage(originalMessages, stContext)
+async function CreateEmptySummaryMessage(originalMessages, stContext)
 {
 	const summary = {
 		is_user: false,
@@ -240,6 +241,7 @@ function CreateEmptySummaryMessage(originalMessages, stContext)
 	// Store original messages
 	summary.extra[kExtraDataKey] = {};
 	summary.extra[kExtraDataKey][kOriginalMessagesKey] = originalMessages;
+	summary.extra[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 
 	return summary;
 }
@@ -370,7 +372,7 @@ async function GenerateSummaryAI()
 
 	// Prepare original messages and prompt
 	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
-	const { promptOk, promptText, promptError } = MakeSummaryPrompt(selection.start, originalMessages, stContext);
+	const { promptOk, promptText, promptError } = await MakeSummaryPrompt(selection.start, originalMessages, stContext);
 
 	if (!promptOk)
 	{
@@ -388,7 +390,7 @@ async function GenerateSummaryAI()
 	const responsePromise = stContext.generateRaw(promptParams);
 
 	// create empty summary message while generation runs
-	const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
+	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
 	newSummaryMsg.mes = "Generating...";
 
 	// Delete Originals
@@ -463,7 +465,7 @@ async function GenerateSummaryManual()
 	// Prepare original messages and prompt
 	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 
-	const newSummaryMsg = CreateEmptySummaryMessage(originalMessages, stContext);
+	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
 	newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]\nEdit this message and write a summary.";
 
 	// Delete Originals
@@ -650,15 +652,16 @@ const kHeaderButtons = [
 			stContext.deactivateSendButtons();
 
 			const summaryMsg = GetMessageByIndex(msgIndex, stContext);
-			let originals = [];
+
+			// Technically this being false should be an error, since we shouldn't be able to click restore
+			// on a message that doesn't have Original Messages.
 			if (HasOriginalMessages(summaryMsg))
 			{
-				originals = summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey];
-				summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey] = null;
-			}
+				let originals = summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey];
 
-			stContext.chat.splice(msgIndex + 1, 0, ...originals);
-			stContext.chat.splice(msgIndex, 1);
+				stContext.chat.splice(msgIndex + 1, 0, ...originals);
+				stContext.chat.splice(msgIndex, 1);
+			}
 
 			await stContext.saveChat();
 			await stContext.reloadCurrentChat();
@@ -701,7 +704,8 @@ const kHeaderButtons = [
 				return;
 			}
 
-			const { promptOk, promptText, promptError } = MakeSummaryPrompt(msgIndex, summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey], stContext);
+			const originalMessages = summaryMsg.extra[kExtraDataKey][kOriginalMessagesKey];
+			const { promptOk, promptText, promptError } = await MakeSummaryPrompt(msgIndex, originalMessages, stContext);
 
 			if (!promptOk)
 			{
@@ -716,6 +720,8 @@ const kHeaderButtons = [
 				promptParams.responseLength = gSettings.tokenLimit;
 
 			const responsePromise = stContext.generateRaw(promptParams);
+
+			summaryMsg.extra[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 
 			const summaryMsgElement = document.querySelector(`.mes[mesid="${msgIndex}"]`);
 			if (summaryMsgElement)
@@ -847,7 +853,7 @@ function RefreshMessageElements(messageDiv, msgIndex)
 // Summary Functions
 // =========================
 
-function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
+async function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 {
 	let { ctxOk, ctxSize, resSize } = GetContextSize(stContext);
 
@@ -864,15 +870,15 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 
 	// Add Main Prompt
 	const startPrompt = gSettings.startPrompt;
-	remainingSize -= stContext.getTokenCount(startPrompt);
+	remainingSize -= await stContext.getTokenCountAsync(startPrompt);
 
 	// Setup Mid-Prompt
 	const midPrompt = (gSettings.midPrompt !== "") ? "\n" + gSettings.midPrompt : "";
-	remainingSize -= stContext.getTokenCount(midPrompt);
+	remainingSize -= await stContext.getTokenCountAsync(midPrompt);
 
 	// Setup End-Prompt
 	const endPrompt = (gSettings.endPrompt !== "") ? "\n" + gSettings.endPrompt : "";
-	remainingSize -= stContext.getTokenCount(endPrompt);
+	remainingSize -= await stContext.getTokenCountAsync(endPrompt);
 
 	// Check if Prompt fits
 	if (remainingSize < 0)
@@ -893,7 +899,7 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 		return { promptOk: false, promptText: "", promptError: "No messages to summarise. Are all messages in the selected range hidden or blank?" };
 
 	messagesToSummarise = "\n" + gSettings.summariseStartMarker + messagesToSummarise + "\n" + gSettings.summariseEndMarker;
-	remainingSize -= stContext.getTokenCount(messagesToSummarise);
+	remainingSize -= await stContext.getTokenCountAsync(messagesToSummarise);
 
 	if (remainingSize < 0)
 		return { promptOk: false, promptText: "", promptError: "Too many messages for context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
@@ -918,7 +924,7 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 			const msgText = msg.mes.trim();
 			if (msgText.length > 0)
 			{
-				const tokenCost = stContext.getTokenCount(histCtxLabels + msgText);
+				const tokenCost = await stContext.getTokenCountAsync(histCtxLabels + msgText);
 				if ((remainingSize - tokenCost) > 0)
 				{
 					historicContex = msgText + historicContex;
@@ -939,7 +945,7 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 		+ messagesToSummarise
 		+ endPrompt;
 
-	const finalSize = stContext.getTokenCount(summaryPrompt);
+	const finalSize = await stContext.getTokenCountAsync(summaryPrompt);
 	if (finalSize > maxContext)
 		return { promptOk: false, promptText: "", promptError: "Final summary prompt exceeded context: " + (maxContext - remainingSize) + " of " + maxContext + "." };
 
@@ -1013,10 +1019,18 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	const headerLabel = document.createElement("div");
 	let origTokens = 0;
 	let visMsg = 0;
-	for (const msg of originals)
+	for (let i = 0; i < originals.length; ++i)
 	{
-		visMsg += msg?.is_system ? 0 : 1;
-		origTokens += Number(msg?.extra?.token_count ?? 0) || 0;
+		const msg = originals[i];
+
+		if (msg?.is_system)
+			continue;
+
+		visMsg++;
+
+		const cachedTokenCount = msgObject?.extra?.[kExtraDataKey]?.[kMessageEstimatedTokenCountKey]?.[i];
+		// token_count does include reasoning, which we do not summarise, so only use it on chats where we do our own maths.
+		origTokens += Number((cachedTokenCount == null) ? (msg?.extra?.token_count ?? 0) : cachedTokenCount) || 0;
 	}
 	headerLabel.textContent = `Original Messages: ${visMsg}/${originals.length} used | ~${origTokens} tokens`;
 

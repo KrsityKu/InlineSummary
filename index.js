@@ -871,7 +871,7 @@ function MakeSummaryPrompt(msgIndex, originalMessages, stContext)
 	remainingSize -= stContext.getTokenCount(midPrompt);
 
 	// Setup End-Prompt
-	const endPrompt = gSettings.endPrompt !== "" ? "\n" + gSettings.endPrompt : "";
+	const endPrompt = (gSettings.endPrompt !== "") ? "\n" + gSettings.endPrompt : "";
 	remainingSize -= stContext.getTokenCount(endPrompt);
 
 	// Check if Prompt fits
@@ -1482,6 +1482,9 @@ function OnSettingChanged(event)
 			break;
 		case "ils_setting_prompt_mid":
 			gSettings.midPrompt = val;
+			break;
+		case "ils_setting_prompt_end":
+			gSettings.endPrompt = val;
 			break;
 		case "ils_setting_use_different_profile":
 			gSettings.useDifferentProfile = event.target.checked;

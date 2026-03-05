@@ -98,15 +98,11 @@ This specific style hides the Message Actions buttons from older messages, which
 
 ## Changelog
 
-#### v1.1.1
-Fixed end prompt not being saved.<br>
-The token counter for Original Messages is now more accurate (applies to new summaries or regenerated only).
-
-#### v1.1.0
-All API modes should now be supported for custom presets.<br>
-Ability to have multiple setting presets and import/export them has been added (Note, some saved settings have been reset to defaults).<br>
-Original Messages now preview images that have been included in the summary range.<br>
-Original Messages section header now has info about how many messages were used in the summary (not marked as hidden) and total token estimate (only real messages count, summaries inside orgiignal messages will count as 0)
+#### v1.1.2
+Summary Messages can now have Reasoning block if the model produced it (Requires a SillyTavern update).<br>
+Summary Messages now show the model, date and token count.<br>
+Summary Messages now recalculate message token count when manually edited.<br>
+Better error messages if Summary generation fails (Requires a SillyTavern update).
 
 ### Previous Changes
 See `changelog.md`

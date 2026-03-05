@@ -53,9 +53,11 @@ const kDefaultSettings = Object.freeze({
 // Includes/API/Globals
 // =========================
 
-import { amount_gen as textMaxTokens } from "../../../../script.js";
+import { amount_gen as textMaxTokens, getGeneratingApi, getGeneratingModel } from "../../../../script.js";
 import { download, getSanitizedFilename } from '../../../../scripts/utils.js';
 import { POPUP_RESULT, Popup } from '../../../../scripts/popup.js';
+import { extractReasoningFromData } from '../../../../scripts/reasoning.js';
+import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
 
 let gSettings = {};
 let gSpName = "Default";
@@ -129,6 +131,18 @@ function ShowWarning(text, exception)
 		errText += "\nWarning Info:\n" + exception;
 	console.warn(errText);
 	toastr.warning(errText);
+}
+
+function SafeJsonStringify(obj)
+{
+	try
+	{
+		return JSON.stringify(obj);
+	}
+	catch
+	{
+		return String(obj);
+	}
 }
 
 // =========================
@@ -346,6 +360,26 @@ function GetContextSize(stContext)
 	}
 }
 
+async function PopulateSummaryMessage(stContext, summaryMsg, response, newApi)
+{
+	if (newApi)
+	{
+		const msg = stContext.extractMessageFromData(response);
+		const reasoning = extractReasoningFromData(response);
+		summaryMsg.mes = msg;
+		summaryMsg.extra.reasoning = reasoning;
+	}
+	else
+	{
+		summaryMsg.mes = response;
+	}
+
+	summaryMsg.send_date = getMessageTimeStamp();
+	summaryMsg.extra.api = getGeneratingApi();
+	summaryMsg.extra.model = getGeneratingModel();
+	summaryMsg.extra.token_count = await stContext.getTokenCountAsync(summaryMsg.mes);
+}
+
 async function GenerateSummaryAI()
 {
 	let stContext = SillyTavern.getContext();
@@ -387,7 +421,8 @@ async function GenerateSummaryAI()
 	if (gSettings.tokenLimit > 0)
 		promptParams.responseLength = gSettings.tokenLimit;
 
-	const responsePromise = stContext.generateRaw(promptParams);
+	const useNewGenerate = (typeof stContext.generateRawData === "function");
+	const responsePromise = useNewGenerate ? stContext.generateRawData(promptParams) : stContext.generateRaw(promptParams);
 
 	// create empty summary message while generation runs
 	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
@@ -429,11 +464,14 @@ async function GenerateSummaryAI()
 	catch (e)
 	{
 		console.error("[ILS] Failed to get response from LLM");
-		response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n" + e;
+		response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nException:\n" + e;
+		if (useNewGenerate)
+			response += "\nRaw Response:\n" + SafeJsonStringify(response);
 	}
 
 	// Update the summary message in the backend with the generated response
-	stContext.chat[selection.start].mes = response;
+	const summaryMsg = stContext.chat[selection.start];
+	await PopulateSummaryMessage(stContext, stContext.chat[selection.start], response, useNewGenerate);
 
 	// Save and reload to reflect the final response in the UI
 	await stContext.saveChat();
@@ -466,7 +504,11 @@ async function GenerateSummaryManual()
 	const originalMessages = stContext.chat.slice(selection.start, selection.end + 1);
 
 	const newSummaryMsg = await CreateEmptySummaryMessage(originalMessages, stContext);
-	newSummaryMsg.mes = "[This is where I'd put the manual summary... if you wrote one!]\nEdit this message and write a summary.";
+	newSummaryMsg.mes = "_Manual Summary_\n_Edit and replace this message with a summary_";
+	newSummaryMsg.send_date = getMessageTimeStamp();
+	newSummaryMsg.extra.api = "custom";
+	newSummaryMsg.extra.model = "Inline Summary Extension - Manual Summary";
+	newSummaryMsg.extra.token_count = await stContext.getTokenCountAsync(newSummaryMsg.mes);
 
 	// Delete Originals
 	stContext.chat.splice(selection.start, originalMessages.length);
@@ -719,7 +761,8 @@ const kHeaderButtons = [
 			if (gSettings.tokenLimit > 0)
 				promptParams.responseLength = gSettings.tokenLimit;
 
-			const responsePromise = stContext.generateRaw(promptParams);
+			const useNewGenerate = (typeof stContext.generateRawData === "function");
+			const responsePromise = useNewGenerate ? stContext.generateRawData(promptParams) : stContext.generateRaw(promptParams);
 
 			summaryMsg.extra[kExtraDataKey][kMessageEstimatedTokenCountKey] = await Promise.all(originalMessages.map(item => stContext.getTokenCountAsync(item.mes)));
 
@@ -746,14 +789,14 @@ const kHeaderButtons = [
 			catch (e)
 			{
 				console.error("[ILS] Failed to get response from LLM");
-				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nRaw Error:\n"
-					+ e
-					+ "\n\n[Previous Summary]\n\n"
-					+ summaryMsg.mes;
+				response = "[Failed to get a response]\nThis can happen if Token limit is too low and reasoning uses up all of it.\nCheck console output for full error message.\nException:\n" + e;
+				if (useNewGenerate)
+					response += "\nRaw Response:\n" + SafeJsonStringify(response);
+				response += "\n\n[Previous Summary]\n\n" + summaryMsg.mes;
 			}
 
 			// Update the summary message in the backend with the generated response
-			summaryMsg.mes = response;
+			await PopulateSummaryMessage(stContext, summaryMsg, response, useNewGenerate);
 
 			// Save and reload to reflect the final response in the UI
 			await stContext.saveChat();
@@ -1228,6 +1271,17 @@ function OnMoreMsgLoaded(data)
 function OnMainApiChanged(data)
 {
 	UpdateSettingsUI();
+}
+
+async function OnMessageEdited(data)
+{
+	const msgIdx = Number(data);
+
+	const stContext = SillyTavern.getContext();
+	const msg = GetMessageByIndex(msgIdx, stContext);
+
+	if (HasOriginalMessages(msg))
+		msg.extra.token_count = await stContext.getTokenCountAsync(msg.mes);
 }
 
 // =========================
@@ -1794,6 +1848,7 @@ jQuery(async () =>
 		{ type: stContext.eventTypes.CHAT_CHANGED, handler: OnChatChanged },
 		{ type: stContext.eventTypes.MORE_MESSAGES_LOADED, handler: OnMoreMsgLoaded },
 		{ type: stContext.eventTypes.MAIN_API_CHANGED, handler: OnMainApiChanged },
+		{ type: stContext.eventTypes.MESSAGE_EDITED, handler: OnMessageEdited },
 	];
 
 	for (const { type, handler } of kEventsToRegister)

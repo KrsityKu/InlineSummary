@@ -1,5 +1,11 @@
 # Full Changelog
 
+#### v1.1.2
+Summary Messages can now have Reasoning block if the model produced it (Requires a SillyTavern update).<br>
+Summary Messages now show the model, date and token count.<br>
+Summary Messages now recalculate message token count when manually edited.<br>
+Better error messages if Summary generation fails (Requires a SillyTavern update).
+
 #### v1.1.1
 Fixed end prompt not being saved.<br>
 The token counter for Original Messages is now more accurate (applies to new summaries or regenerated only).

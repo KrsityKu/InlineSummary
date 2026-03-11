@@ -15,7 +15,6 @@
 	cursor: pointer;
 	padding: 3px 3px;
 	border-radius: 5px;
-	border: 1px solid;
 	transition: background-color 0.2s ease;
 }
 
@@ -39,9 +38,24 @@
 /* Message Header Row */
 .ils_original_message_header {
 	display: flex;
-	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 6px;
+	margin-bottom: 2px;
+	object-fit: contain;
+}
+
+/* Avatar Img */
+.ils_avi_img {
+	max-width: 48px;
+	max-height: 48px;
+	width: auto;
+	height: auto;
+}
+
+/* Separator */
+.ils_separator {
+	width: 2px;
+	height: 24px;
+	margin: 0 3px;
 }
 
 /* Loading Spinner */

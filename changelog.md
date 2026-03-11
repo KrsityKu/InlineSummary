@@ -1,5 +1,8 @@
 # Full Changelog
 
+#### v1.1.3
+Adjusted css style for original messages.
+
 #### v1.1.2
 Summary Messages can now have Reasoning block if the model produced it (Requires a SillyTavern update).<br>
 Summary Messages now show the model, date and token count.<br>

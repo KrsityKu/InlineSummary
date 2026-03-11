@@ -53,11 +53,12 @@ const kDefaultSettings = Object.freeze({
 // Includes/API/Globals
 // =========================
 
-import { amount_gen as textMaxTokens, getGeneratingApi, getGeneratingModel } from "../../../../script.js";
-import { download, getSanitizedFilename } from '../../../../scripts/utils.js';
+import { amount_gen as textMaxTokens, getGeneratingApi, getGeneratingModel, this_chid, system_avatar, default_avatar } from "../../../../script.js";
+import { download, getSanitizedFilename, timestampToMoment } from '../../../../scripts/utils.js';
 import { POPUP_RESULT, Popup } from '../../../../scripts/popup.js';
 import { extractReasoningFromData } from '../../../../scripts/reasoning.js';
 import { getMessageTimeStamp } from '../../../../scripts/RossAscends-mods.js';
+import { power_user } from '../../../../scripts/power-user.js';
 
 let gSettings = {};
 let gSpName = "Default";
@@ -1041,7 +1042,7 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 	containerHeader.setAttribute("ils-msg-index", msgIndex);
 	containerHeader.setAttribute("ils-msg-path", JSON.stringify([...path, msgIndex]));
 	containerHeader.style.background = `linear-gradient(90deg, ${GetDepthColourWithAlpha(depth, 0.3)}, transparent)`;
-	containerHeader.style.border = `1px solid ${GetDepthColourWithAlpha(depth, 0.12)}`;
+	containerHeader.style.border = `1px solid ${GetDepthColourWithAlpha(depth, 0.18)}`;
 
 	const buttonsDiv = document.createElement("div");
 	if (depth === 0)
@@ -1094,33 +1095,96 @@ function CreateOriginalMessagesContainer(msgIndex, msgObject, depth = 0, path = 
 
 	return containerRoot;
 }
+function OrigMsgHeaderSeparator(depth)
+{
+	const sep = document.createElement("div");
+	sep.className = "ils_separator";
+	sep.style.background = `${GetDepthColourWithAlpha(depth, 0.22)}`;
+	return sep;
+}
 
 function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, path = [])
 {
+	// Main Element
 	const messageRoot = document.createElement("div");
 	messageRoot.className = "ils_original_message";
-	messageRoot.style.border = `1px solid ${GetDepthColourWithAlpha(depth, 0.18)}`;
+	messageRoot.style.border = `1px solid ${GetDepthColourWithAlpha(depth, 0.22)}`;
 
+	// Header
 	const headerRow = document.createElement("div");
-	headerRow.className = "ils_original_message_header";
+	headerRow.className = "ils_original_message_header flex-container";
+	messageRoot.appendChild(headerRow);
 
+	// Avatar Image
+	if (!power_user.hideChatAvatars_enabled)
+	{
+		const avatarImg = document.createElement("img");
+		avatarImg.className = "ils_avi_img";
+		if (!msgObject.is_user)
+		{
+			if (msgObject.force_avatar)
+				avatarImg.src = msgObject.force_avatar;
+			else if (this_chid === undefined)
+				avatarImg.src = system_avatar;
+			else if (stContext.characters[this_chid] && stContext.characters[this_chid].avatar !== 'none')
+				avatarImg.src = stContext.getThumbnailUrl('avatar', stContext.characters[this_chid].avatar);
+			else
+				avatarImg.src = default_avatar;
+		}
+		else if (msgObject.is_user && msgObject.force_avatar)
+		{
+			avatarImg.src = msgObject.force_avatar;
+		}
+		headerRow.appendChild(avatarImg);
+
+		headerRow.appendChild(OrigMsgHeaderSeparator(depth));
+	}
+
+	// Message Index
+	const msgIndexElem = document.createElement("div");
+	msgIndexElem.className = "mesIDDisplay";
+	msgIndexElem.textContent = `#${msgIndex}`;
+	headerRow.appendChild(msgIndexElem);
+
+	headerRow.appendChild(OrigMsgHeaderSeparator(depth));
+
+	// Characetr Name
 	const nameSpan = document.createElement("span");
 	nameSpan.className = "name_text";
 	nameSpan.textContent = msgObject.name || "Unknown";
-
-	const indexSpan = document.createElement("small");
-	indexSpan.className = "mesIDDisplay";
-	indexSpan.textContent = `[${msgIndex}]`;
-
 	headerRow.appendChild(nameSpan);
-	headerRow.appendChild(indexSpan);
 
-	messageRoot.appendChild(headerRow);
+	headerRow.appendChild(OrigMsgHeaderSeparator(depth));
 
+	// Token Counter
+	if (power_user.message_token_count_enabled)
+	{
+		const tokenDisp = document.createElement("div");
+		tokenDisp.className = "tokenCounterDisplay";
+		tokenDisp.textContent = (msgObject.extra.token_count ?? "--") + "t";
+		headerRow.appendChild(tokenDisp);
+
+		headerRow.appendChild(OrigMsgHeaderSeparator(depth));
+	}
+
+	// Timestamp
+	if (power_user.timestamps_enabled)
+	{
+		const timestamp = document.createElement("div");
+		timestamp.className = "timestamp";
+		const momentDate = timestampToMoment(msgObject.send_date);
+		timestamp.textContent = momentDate.isValid() ? momentDate.format('LL LT') : '';
+		headerRow.appendChild(timestamp);
+
+		headerRow.appendChild(OrigMsgHeaderSeparator(depth));
+	}
+
+	// Messae Contents
 	const contentDiv = document.createElement("div");
 	contentDiv.className = "ils_mes_text";
+	messageRoot.appendChild(contentDiv);
 
-	// Rewrite this part to be better
+	// Check if there are images
 	if (Array.isArray(msgObject.extra?.media) && msgObject.extra.media.length > 0)
 	{
 		const mediaArray = msgObject.extra.media;
@@ -1141,8 +1205,7 @@ function CreateOriginalMessageBody(msgIndex, msgObject, stContext, depth = 0, pa
 		contentDiv.innerHTML = stContext.messageFormatting(msgObject.mes || "(empty message)", msgObject.name || "Unknown", msgObject.is_system, msgObject.is_user, 0);
 	}
 
-	messageRoot.appendChild(contentDiv);
-
+	// Add any child messages
 	if (HasOriginalMessages(msgObject))
 	{
 		messageRoot.appendChild(CreateOriginalMessagesContainer(msgIndex, msgObject, depth + 1, path));
